@@ -1,0 +1,51 @@
+{
+  "title": "Deliver ROI Plugin v1",
+  "goal": "Ship a self-contained ROI plugin with local MCP, SQLite durability, local and A2A execution, review-gated drafts, publication, and learning.",
+  "priority": "high",
+  "owner": "roi",
+  "audience": "plugin operator",
+  "workspace_refs": [
+    "roi/"
+  ],
+  "brief": {
+    "assumptions": [
+      "The implementation remains fully self-contained under roi/.",
+      "SQLite is the v1 system of record.",
+      "Capability promotion is human-gated."
+    ],
+    "constraints": [
+      "Do not depend on existing BMO runtime seams.",
+      "Support one complete mission lifecycle end to end."
+    ],
+    "success_criteria": [
+      "roi:work through roi:inspect works against the bundled MCP backend.",
+      "Runs can be resumed from persisted state.",
+      "Policy decisions, traces, evidence, and capability proposals are durable."
+    ]
+  },
+  "plans": [
+    {
+      "name": "Freeze contracts",
+      "actions": [
+        "Define ROI schemas and lifecycle states",
+        "Persist artifacts in SQLite"
+      ],
+      "verification_targets": [
+        "Artifacts are versioned and durable"
+      ],
+      "wave": 1
+    },
+    {
+      "name": "Ship execution paths",
+      "actions": [
+        "Implement local execution",
+        "Implement bounded A2A delegation",
+        "Capture traces and evidence"
+      ],
+      "verification_targets": [
+        "Local and remote runs complete or pause resumably"
+      ],
+      "wave": 2
+    }
+  ]
+}

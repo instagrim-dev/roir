@@ -1,0 +1,166 @@
+# ROI Quickstart
+
+This quickstart gets you from a private tarball or checkout to one complete ROI
+mission lifecycle.
+
+> **Coming from Compound Engineering skills?** See the
+> [CE → ROI migration guide](./from-ce.md) for a host-specific walkthrough
+> (Claude Code, Codex, Copilot CLI) and a command mapping table that maps
+> every `ce:*` command to its ROI equivalent.
+
+## Prerequisites
+
+- Node.js `>=24`
+- pnpm
+- terminal access inside either the checked-out `roi/` directory or the unpacked
+  tarball `package/` directory
+
+## 1. Prepare The Package
+
+If you received a private handoff tarball:
+
+```bash
+shasum -a 256 -c roi-plugin-0.1.0.tgz.sha256
+tar -xzf roi-plugin-0.1.0.tgz
+cd package
+pnpm install --frozen-lockfile
+```
+
+If you have a checkout, run this from `roi/`:
+
+```bash
+pnpm install
+```
+
+## 2. Validate The Bundle
+
+Run the full private release gate first:
+
+```bash
+pnpm run release:check
+```
+
+If this fails, fix the environment before proceeding. The ROI package assumes
+the release gate is the baseline integrity check for private handoff.
+
+## 3. Choose A Host
+
+Most users should let their host spawn ROI's stdio MCP server:
+
+- Cursor: open the ROI package directory as the workspace.
+- Codex: register the MCP server and install the local ROI skill plugin.
+- GitHub Copilot CLI: register the MCP server and install the local ROI skill
+  plugin.
+- Claude Code: register the MCP server and install the ROI skills.
+
+See [`installation.md`](./installation.md) for exact host steps.
+
+Run `pnpm start` only when debugging the MCP server directly from a terminal.
+
+By default, ROI persists data in:
+
+```text
+roi/.data/roi.sqlite
+```
+
+The database file is created on first use. Set `ROI_SQLITE_PATH` for isolated
+experiments or parallel sessions.
+
+## 4. Create A Sample Mission
+
+Use [`../fixtures/reference-mission.json`](../fixtures/reference-mission.json)
+as the canonical example shape. A minimal mission looks like this:
+
+```json
+{
+  "title": "Deliver ROI Plugin v1",
+  "goal": "Ship a self-contained ROI plugin with local MCP, SQLite durability, local and A2A execution, review, publication, and learning."
+}
+```
+
+## 5. Walk The Lifecycle
+
+**Two commands, two loops:**
+
+- **`roi:go [mission]`** — implement plans in the product repo, run
+  `verification_targets`, record verification evidence (`skills/roi-go/SKILL.md`).
+- **`roi:drive [mission]`** — advance ROI lifecycle (runs, verify gate,
+  publish); does not implement code (`skills/roi-drive/SKILL.md`).
+
+Recommended after outlining: `roi:go` → `roi:drive`. In Claude Code, Codex, and
+Copilot CLI, use `$roi-go` / `$roi-drive` from the skill picker (see
+[`installation.md`](./installation.md)). In Cursor, use the vocabulary in
+`.cursor/rules/roi-commands.mdc`. The numbered steps below are manual
+step-by-step control.
+
+Use the top-level ROI command surface in this order:
+
+1. `roi:work`
+    Creates the mission and seeds the first brief revision.
+2. `roi:brief`
+    Adds assumptions, constraints, and success criteria.
+3. `roi:source`
+   Records the source material and findings the draft will rely on.
+4. `roi:outline`
+    Generates or stores plans, assigns routing, and stamps workflow metadata.
+5. `roi:draft`
+    Expands the selected plan into staged tasks and advances execution.
+    Typically pauses at `verify_gate`; use `roi:review` to advance.
+6. `roi:review`
+   Closes the review gate with explicit evidence and a verdict.
+7. `roi:edit`
+   Revises the outline or launches a follow-on draft when review finds gaps.
+8. `roi:publish`
+   Records the handoff-ready state once the draft is acceptable.
+9. `roi:learn`
+   Detects repeated successful patterns and creates human-gated capability
+   proposals. A `noop` result is expected until 3+ successful runs exist.
+10. `roi:inspect`
+    Reads the durable mission state. Available **at any point**, not only
+    after publication.
+
+## 6. What To Expect
+
+On the first green-path run:
+
+- `roi:draft` usually pauses at `verify_gate`
+- `roi:inspect` should show:
+  - one or more plans
+  - staged tasks
+  - routing decisions
+  - capability activations
+  - review records
+- `roi:review` should move the run toward `roi:edit`, `roi:publish`, or direct
+  completion
+- `roi:publish` marks the handoff boundary once the run is ready
+- `roi:learn` may return `noop` until enough repeated successful
+  activations exist
+
+## 7. Inspect State
+
+Use `roi:inspect` as the primary operator view **at any point in the
+lifecycle**, not only after publication. It summarizes:
+
+- latest brief and plans
+- task and run states
+- policy decisions
+- review records
+- patterns and capability proposals
+- next recommended actions
+
+## 8. Reset Local State
+
+Stop the MCP server first, then remove the local database:
+
+```bash
+rm -f .data/roi.sqlite .data/roi.sqlite-wal .data/roi.sqlite-shm
+```
+
+Use this only for local experimentation. It deletes all mission state.
+
+## Next Docs
+
+- [`installation.md`](./installation.md)
+- [`command-reference.md`](./command-reference.md)
+- [`architecture.md`](./architecture.md)
+- [`../examples/software-engineer-workflows.md`](../examples/software-engineer-workflows.md)
