@@ -1,0 +1,17 @@
+# Snippet for OpenAI Codex CLI MCP configuration.
+# Merge into ~/.codex/config.toml (user-wide) or .codex/config.toml in a trusted project.
+# Replace /absolute/path/to with the absolute path to your roi checkout.
+#
+# Official docs: https://developers.openai.com/codex/mcp
+#
+# CLI alternative (then edit config if you need env or cwd):
+#   codex mcp add roi -- node /absolute/path/to/src/server.mjs
+
+[mcp_servers.roi]
+command = "node"
+args = ["/absolute/path/to/src/server.mjs"]
+cwd = "/absolute/path/to/roi-checkout"
+
+# Optional: use a dedicated SQLite file (recommended for experiments / CI parity)
+# [mcp_servers.roi.env]
+# ROI_SQLITE_PATH = "/path/to/your/roi.sqlite"

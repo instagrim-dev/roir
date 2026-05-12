@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "bundle_id": "2026-04-21-008-ce-materialization",
+  "source_ref": "docs/plans/2026-04-21-008-feat-ce-todo-roi-task-materialization-plan.md",
+  "units": [
+    {
+      "id": "unit-1-schema-doc",
+      "title": "Schema + mapping doc",
+      "verification": "ROI maintainer ack + task.create signature match in roi/src/",
+      "execution_note": "docs-first MVP per plan 008 Phase 1",
+      "depends_on": []
+    },
+    {
+      "id": "unit-2-bundle-extractor",
+      "title": "Bundle extractor (optional parser)",
+      "verification": "Golden test on one real plan file (when implemented)",
+      "depends_on": ["unit-1-schema-doc"]
+    },
+    {
+      "id": "unit-3-materialize",
+      "title": "Materialize command or tool",
+      "verification": "pnpm test / task lane; materialize script creates tasks idempotently",
+      "depends_on": ["unit-1-schema-doc"]
+    },
+    {
+      "id": "unit-4-docs-gap",
+      "title": "Docs + mapping table update",
+      "verification": "bmo-native-mapping + glossary + README runbook link",
+      "depends_on": ["unit-1-schema-doc"]
+    }
+  ]
+}

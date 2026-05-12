@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "roi": {
+      "command": "node",
+      "args": [
+        "${workspaceFolder}/src/server.mjs"
+      ],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}

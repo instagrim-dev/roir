@@ -1,0 +1,56 @@
+{
+  "name": "roi-plugin",
+  "version": "0.1.0",
+  "description": "ROI: Reusable Operational Intelligence plugin and bundled MCP backend",
+  "type": "module",
+  "private": true,
+  "files": [
+    ".agents/",
+    ".cursor/",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md",
+    "agents/",
+    "codex/",
+    "copilot/",
+    "docs/",
+    "examples/",
+    "fixtures/",
+    "hooks/",
+    "mcp.json",
+    "plugin.json",
+    "pnpm-lock.yaml",
+    "scripts/",
+    "skills/",
+    "src/",
+    "test/"
+  ],
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "ROI_ALLOW_LOCAL_STUB=1 node --test",
+    "validate": "node scripts/validate.mjs",
+    "smoke": "node scripts/mcp-smoke.mjs",
+    "smoke:integration": "node scripts/integration-smoke.mjs",
+    "release:check": "node scripts/release-check.mjs",
+    "materialize:ce": "node scripts/materialize-ce-bundle.mjs",
+    "sync:mcp-tools": "node scripts/sync-mcp-tools.mjs",
+    "install:skills": "bash ./scripts/install-agent-skills.sh claude-user",
+    "install:skills:claude": "bash ./scripts/install-agent-skills.sh claude-user",
+    "install:skills:claude-project": "bash ./scripts/install-agent-skills.sh claude-project",
+    "install:skills:cursor": "bash ./scripts/install-agent-skills.sh cursor-user",
+    "install:skills:codex": "bash ./scripts/install-agent-skills.sh codex",
+    "install:skills:copilot": "bash ./scripts/install-agent-skills.sh copilot"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@a2a-js/sdk": "^0.3.13",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "express": "^5.2.1",
+    "zod": "^4.4.3"
+  }
+}

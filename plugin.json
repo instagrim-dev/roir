@@ -1,0 +1,15 @@
+{
+  "name": "roi",
+  "description": "ROI: Reusable Operational Intelligence — mission-driven delivery with roi:drive, roi:go, roi:work, roi:cancel, and the full lifecycle.",
+  "version": "0.1.0",
+  "author": "instagrim-dev",
+  "agents": [
+    "agents"
+  ],
+  "skills": [
+    "skills"
+  ],
+  "mcp_configs": [
+    "mcp.json"
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "cases": [
+    {
+      "name": "debugging workflow matches bug-fix mission",
+      "mission": {
+        "title": "Debug flaky login bug",
+        "goal": "Fix the regression causing authentication failures"
+      },
+      "brief": {
+        "assumptions": [
+          "This work needs root-cause analysis"
+        ],
+        "constraints": [],
+        "success_criteria": [
+          "Regression is fixed"
+        ]
+      },
+      "plan": {
+        "name": "Trace the auth regression",
+        "actions": [
+          "reproduce failure",
+          "trace root cause",
+          "fix regression"
+        ],
+        "verification_targets": [
+          "Regression is fixed"
+        ]
+      },
+      "expected_capability_id": "debugging_workflow"
+    },
+    {
+      "name": "fallback general workflow matches ordinary delivery mission",
+      "mission": {
+        "title": "Ship reporting page",
+        "goal": "Implement a reporting page for admins"
+      },
+      "brief": {
+        "assumptions": [
+          "This is straightforward feature delivery"
+        ],
+        "constraints": [],
+        "success_criteria": [
+          "Reporting page works"
+        ]
+      },
+      "plan": {
+        "name": "Build reporting page",
+        "actions": [
+          "create report endpoint",
+          "render report view"
+        ],
+        "verification_targets": [
+          "Reporting page works"
+        ]
+      },
+      "expected_capability_id": "general_delivery_workflow"
+    }
+  ]
+}
