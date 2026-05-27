@@ -12,13 +12,18 @@ outline load → status_get → plan_list → evidence_list → evidence_record 
 ## Findings
 
 - **[PASS]** `outline-load`: mission_id: mission_75b9925a-dd02-4d2b-8baa-0bf5f4ea25d5, plans in artifact: 4
-- **[PASS]** `status_get`: runs: 1, evidence_count: 22
+- **[PASS]** `status_get`: runs: 1, evidence_count: 35
 - **[INFO]** `active-run`: run_7622bc01-d16e-4d19-8989-3a2549438950 status=paused
-- **[PASS]** `plan_list`: 2 plan(s) to process
-- **[INFO]** `evidence-before`: 22 item(s)
+- **[PASS]** `plan_list`: 4 plan(s) to process
+- **[INFO]** `evidence-before`: 35 item(s)
 - **[PASS]** `plan-plan_7683d1bc-8b4a-4f14-aed0-d27248509a6a`: result=pass
 - **[PASS]** `plan-plan_f44060ae-2759-4ff4-8baa-7e7eba809b8e`: result=pass
-- **[PASS]** `evidence-after`: total=24, roi:go source=20
+- **[FAIL]** `oracle-plan_332777a1-6635-4959-998a-2a092c08464c`: cd bmo && go test -race ./internal/mcp/server/... -run TestMCPServerShutdown -count=1 failed
+- **[FAIL]** `plan-plan_332777a1-6635-4959-998a-2a092c08464c`: result=fail
+- **[FAIL]** `oracle-plan_02786207-0229-47bd-8bc0-a477cacacd58`: cd bmo && go test ./internal/cmd/... -run TestConfigShowMCPServer -count=1 failed
+- **[FAIL]** `oracle-plan_02786207-0229-47bd-8bc0-a477cacacd58`: cd bmo && go test ./internal/ui/model/... -run 'TestSlashServeMCP|ServeMCP' -count=1 failed
+- **[FAIL]** `plan-plan_02786207-0229-47bd-8bc0-a477cacacd58`: result=fail
+- **[PASS]** `evidence-after`: total=39, roi:go source=34
 
 ## Skill observations
 

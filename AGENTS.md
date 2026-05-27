@@ -49,7 +49,9 @@ mission created
 `verification_targets` and set `verified_by: mcp`. Without it,
 `implementation_proof_trust` stays `agent_claimed`. **`roi:drive strict`** (or
 `ROI_STRICT_VERIFY=1`) chains go with `run_oracles` and verify pass with
-`require_verified_proof: true` — see `skills/roi-drive/SKILL.md`. Lifecycle
+`require_verified_proof: true` — see `skills/roi-drive/SKILL.md`. Checkpoint
+`verify_evaluate(pass, allow_partial_verification: true)` — see
+`skills/roi-verify/SKILL.md`. Lifecycle
 completion is not external ship proof — see `docs/limitations.md`.
 
 Recommended: `roi:outline` → `roi:go` → `roi:drive`.

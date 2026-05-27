@@ -11,6 +11,9 @@ import {
   inferProductTreeKey,
   pathAppearsInPorcelain,
   runPlansHaveMcpVerifiedGoEvidence,
+  runPlansHaveMcpVerifiedGoEvidenceForSubstantive,
+  partialVerificationCheckpoint,
+  partialVerificationEligible,
   verifyGateNextActions,
   isLocalImplementStubOutput,
   isSubstantiveRoiGoVerification,
@@ -176,6 +179,124 @@ test("verifyGateNextActions surfaces roi:go on non-pass", () => {
     "roi:edit",
     "roi:inspect"
   ]);
+});
+
+test("verifyGateNextActions partial checkpoint pass withholds publish", () => {
+  assert.deepEqual(verifyGateNextActions("pass", { partialCheckpoint: true }), [
+    "roi:go",
+    "roi:inspect"
+  ]);
+  assert.deepEqual(verifyGateNextActions("pass"), ["roi:publish", "roi:learn"]);
+});
+
+test("partialVerificationCheckpoint denies zero substantive", () => {
+  const plans = [
+    { id: "p1", actions: ["a"], verification_targets: ["t"] },
+    { id: "p2", actions: ["b"], verification_targets: ["u"] }
+  ];
+  const checkpoint = partialVerificationCheckpoint(plans, [], ["p1", "p2"]);
+  assert.equal(checkpoint.allowed, false);
+  assert.equal(checkpoint.partial_checkpoint, false);
+});
+
+test("partialVerificationCheckpoint marks partial when one of three substantive", () => {
+  const plans = [
+    { id: "p1", actions: ["a"], verification_targets: ["t"] },
+    { id: "p2", actions: ["b"], verification_targets: ["u"] },
+    { id: "p3", actions: ["c"], verification_targets: ["v"] }
+  ];
+  const evidence = [
+    {
+      source: "roi:go",
+      type: "verification",
+      result: "pass",
+      content: {
+        plan_id: "p1",
+        implementation_proof: {
+          oracles_ok: true,
+          diff_stat: "x",
+          paths_touched: ["roi/x"]
+        }
+      }
+    }
+  ];
+  const checkpoint = partialVerificationCheckpoint(plans, evidence, ["p1", "p2", "p3"]);
+  assert.equal(checkpoint.allowed, true);
+  assert.equal(checkpoint.partial_checkpoint, true);
+  assert.equal(checkpoint.substantive_count, 1);
+  assert.equal(checkpoint.open_count, 2);
+});
+
+test("partialVerificationCheckpoint not partial when all substantive", () => {
+  const plans = [
+    { id: "p1", actions: ["a"], verification_targets: ["t"] },
+    { id: "p2", actions: ["b"], verification_targets: ["u"] }
+  ];
+  const evidence = ["p1", "p2"].map((plan_id) => ({
+    source: "roi:go",
+    type: "verification",
+    result: "pass",
+    content: {
+      plan_id,
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "x",
+        paths_touched: ["roi/x"]
+      }
+    }
+  }));
+  const checkpoint = partialVerificationCheckpoint(plans, evidence, ["p1", "p2"]);
+  assert.equal(checkpoint.allowed, true);
+  assert.equal(checkpoint.partial_checkpoint, false);
+});
+
+test("runPlansHaveMcpVerifiedGoEvidenceForSubstantive ignores open plans", () => {
+  const plans = [
+    { id: "p1", actions: ["a"], verification_targets: ["t"] },
+    { id: "p2", actions: ["b"], verification_targets: ["u"] }
+  ];
+  const evidence = [
+    {
+      source: "roi:go",
+      type: "verification",
+      result: "pass",
+      content: {
+        plan_id: "p1",
+        implementation_proof: {
+          verified_by: "mcp",
+          oracles_ok: true,
+          diff_stat: "x",
+          paths_touched: ["roi/x"]
+        }
+      }
+    }
+  ];
+  assert.equal(runPlansHaveMcpVerifiedGoEvidence(plans, evidence, ["p1", "p2"]), false);
+  assert.equal(runPlansHaveMcpVerifiedGoEvidenceForSubstantive(plans, evidence, ["p1", "p2"]), true);
+});
+
+test("partialVerificationEligible mirrors mission progress", () => {
+  const plans = [{ id: "p1", actions: ["a"], verification_targets: ["t"] }];
+  const evidence = [
+    {
+      source: "roi:go",
+      type: "verification",
+      result: "pass",
+      content: {
+        plan_id: "p1",
+        implementation_proof: { oracles_ok: true, diff_stat: "x", paths_touched: ["roi/x"] }
+      }
+    }
+  ];
+  assert.equal(partialVerificationEligible(plans, evidence).eligible, false);
+  const open = partialVerificationEligible(plans, []).eligible;
+  assert.equal(open, false);
+  const partial = partialVerificationEligible(
+    [...plans, { id: "p2", actions: ["b"], verification_targets: ["u"] }],
+    evidence
+  );
+  assert.equal(partial.eligible, true);
+  assert.equal(partial.open_count, 1);
 });
 
 test("isLocalImplementStubOutput detects stub marker", () => {

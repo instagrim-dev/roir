@@ -201,7 +201,14 @@ and stamps `verified_by: mcp` (`implementation_proof_trust: mcp_verified`).
 (`bmo`|`roi`) for an optional git porcelain cross-check. At verify gate, pass **`require_verified_proof: true`** on `verify.evaluate` to
 require `mcp_verified` go evidence for the run's plans (default false), or
 **`run_oracles: true`** to MCP-run `verification_targets` at verify time and
-stamp `content.verify_gate` (blocks `pass` if targets fail; D2-D).
+stamp `content.verify_gate` (blocks `pass` if targets fail; D2-D). For
+incremental missions, **`allow_partial_verification: true`** with **`verdict: pass`**
+records a checkpoint pass when at least one run plan has substantive `roi:go`
+but the mission is incomplete — stamps `verify_gate.partial_mission`, keeps
+`roi:go` in `next_actions`, and does not imply publish readiness. Use
+`verdict: partial` when the verify-gate task should stay incomplete.
+`status_get.summary.partial_verification_eligible` hints when checkpoint pass
+is available.
 See `docs/meta-design/2026-05-27-roi-implementation-proof-and-executors.md`
 (D7, D8).
 

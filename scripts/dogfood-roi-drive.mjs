@@ -204,10 +204,22 @@ async function compoundDriveDogfood(client, missionId, dbPath) {
     );
   }
 
+  const goProgress = summary.mission_go_progress ?? {};
+  const partialEligible = summary.partial_verification_eligible ?? {};
+  const missionComplete = goProgress.complete === true;
+  const canPartialCheckpoint =
+    substantivePlans > 0 && !missionComplete && partialEligible.eligible !== false;
+
+  note(
+    "INFO",
+    "mission-go-progress",
+    `substantive: ${goProgress.substantive ?? "?"}/${goProgress.total ?? "?"}, complete: ${missionComplete}, partial_eligible: ${partialEligible.eligible ?? "?"}`
+  );
+
   const stillNeedsGo = nextActions[0] === "roi:go";
   const atVerify = nextActions.includes("roi:review") || runStatus === "paused";
 
-  if (stillNeedsGo) {
+  if (stillNeedsGo && !canPartialCheckpoint) {
     note("FAIL", "verify-blocked", "implementation proof still owed — will not verify_evaluate(pass)");
     log("\n=== roi:drive final summary ===");
     log(`Mission ID: ${missionId}`);
@@ -216,21 +228,29 @@ async function compoundDriveDogfood(client, missionId, dbPath) {
     return;
   }
 
-  if (atVerify && runId) {
+  if ((atVerify || (stillNeedsGo && canPartialCheckpoint)) && runId) {
     log("\n── Step 5: verify_evaluate (honest verdict) ──");
-    const verdict = substantivePlans > 0 ? "partial" : "fail";
-    const notes =
-      substantivePlans > 0
-        ? "Dogfood: substantive roi:go pass present for at least one plan; full mission may still need more waves."
-        : "Dogfood: no substantive roi:go verification — refusing pass.";
-    if (verdict === "pass") {
-      note("WARN", "auto-pass-refused", "dogfood does not auto-pass without full plan coverage");
+    let verdict = "fail";
+    let notes = "Dogfood: no substantive roi:go verification — refusing pass.";
+    const verifyPayload = { run_id: runId, notes: "" };
+
+    if (missionComplete && substantivePlans > 0) {
+      verdict = "pass";
+      notes = "Dogfood: all in-scope plans have substantive roi:go — full mission pass.";
+    } else if (canPartialCheckpoint) {
+      verdict = "pass";
+      verifyPayload.allow_partial_verification = true;
+      notes = `Dogfood: partial checkpoint pass (${substantivePlans} substantive, mission incomplete).`;
+      note("INFO", "partial-checkpoint", "verify_evaluate(pass, allow_partial_verification: true)");
+    } else if (substantivePlans > 0) {
+      verdict = "partial";
+      notes =
+        "Dogfood: substantive roi:go present but partial checkpoint not eligible — using verdict partial.";
     }
-    const verifyPayload = {
-      run_id: runId,
-      verdict,
-      notes
-    };
+
+    verifyPayload.verdict = verdict;
+    verifyPayload.notes = notes;
+
     if (strictVerify && verdict === "pass") {
       verifyPayload.require_verified_proof = true;
     }
@@ -370,7 +390,7 @@ const md = [
   "## Skill observations",
   "",
   "- Compound drive must chain `roi:go` when `next_actions` leads with `roi:go`, then re-enter drive.",
-  "- Dogfood refuses `verify_evaluate(pass)` when substantive `roi:go` proof is still missing.",
+  "- When `partial_verification_eligible` and substantive go exists, dogfood uses `verify_evaluate(pass, allow_partial_verification: true)` instead of blocking.",
   "- U2 oracles: `go test ./internal/mcp/server/... -run TestMCPServerHubSmoke` and `TestInprocessMCP` in cmd (latter may be follow-up).",
   ""
 ].join("\n");

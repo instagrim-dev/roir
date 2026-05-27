@@ -298,11 +298,77 @@ export function validateRoiGoVerificationPass(input, { plan } = {}, options = {}
   });
 }
 
-export function verifyGateNextActions(verdict, notes = "") {
+export function verifyGateNextActions(verdict, options) {
+  const opts = typeof options === "string" ? {} : options ?? {};
   if (verdict === "pass") {
+    if (opts.partialCheckpoint === true) {
+      return ["roi:go", "roi:inspect"];
+    }
     return ["roi:publish", "roi:learn"];
   }
   return ["roi:go", "roi:edit", "roi:inspect"];
+}
+
+function runScopedPlans(plans, planIds) {
+  const ids = new Set((planIds ?? []).map((id) => String(id).trim()).filter(Boolean));
+  if (!ids.size) {
+    return plans ?? [];
+  }
+  return (plans ?? []).filter((plan) => ids.has(plan.id));
+}
+
+/**
+ * Partial-checkpoint eligibility for verify.evaluate(allow_partial_verification).
+ * `partial_checkpoint` is true when some but not all run-scoped plans have substantive roi:go.
+ */
+export function partialVerificationCheckpoint(plans, evidenceList, runPlanIds) {
+  const scoped = runScopedPlans(plans, runPlanIds);
+  const progress = missionGoProgress(scoped, evidenceList);
+  const byPlan = latestRoiGoVerificationByPlan(evidenceList);
+  const substantivePlanIds = [];
+  for (const plan of scoped) {
+    if (isSubstantiveRoiGoVerification(byPlan.get(plan.id), plan)) {
+      substantivePlanIds.push(plan.id);
+    }
+  }
+  const allowed = progress.substantive >= 1;
+  const partialCheckpoint = allowed && !progress.complete;
+  return {
+    allowed,
+    partial_checkpoint: partialCheckpoint,
+    substantive_count: progress.substantive,
+    open_count: progress.open.length,
+    total: progress.total,
+    mission_complete: progress.complete,
+    substantive_plan_ids: substantivePlanIds,
+    open_plans: progress.open.map((entry) => ({
+      plan_id: entry.plan_id,
+      plan_name: entry.plan_name,
+      wave: entry.wave,
+      reason: entry.reason
+    }))
+  };
+}
+
+/** Read-only hint for status_get — checkpoint pass is available but mission is incomplete. */
+export function partialVerificationEligible(plans, evidenceList, options = {}) {
+  const progress = missionGoProgress(plans, evidenceList, options);
+  return {
+    eligible: progress.substantive >= 1 && !progress.complete,
+    substantive_count: progress.substantive,
+    open_count: progress.open.length,
+    total: progress.total,
+    mission_complete: progress.complete
+  };
+}
+
+/** require_verified_proof with allow_partial_verification: only substantive run plans must be MCP-verified. */
+export function runPlansHaveMcpVerifiedGoEvidenceForSubstantive(plans, evidenceList, planIds) {
+  const checkpoint = partialVerificationCheckpoint(plans, evidenceList, planIds);
+  if (!checkpoint.substantive_plan_ids.length) {
+    return false;
+  }
+  return runPlansHaveMcpVerifiedGoEvidence(plans, evidenceList, checkpoint.substantive_plan_ids);
 }
 
 export function isLocalImplementStubOutput(output) {

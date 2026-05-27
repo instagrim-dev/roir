@@ -6,10 +6,13 @@ import {
   missionGoProgress,
   missionImplementationProofTrust,
   missionNeedsRoiGo,
+  partialVerificationCheckpoint,
+  partialVerificationEligible,
   pausedRunNextActions,
   substantiveRoiGoForPlan,
   latestRoiGoVerificationByPlan,
   runPlansHaveMcpVerifiedGoEvidence,
+  runPlansHaveMcpVerifiedGoEvidenceForSubstantive,
   validateRoiGoVerificationPass,
   defaultRoiWorkspaceRoot,
   verifyGateNextActions
@@ -1014,15 +1017,37 @@ export class ROIService {
   verifyEvaluate(input) {
     const run = this._getRun(input.run_id);
     const verdict = input.verdict?.trim() || VerifyVerdict.PASS;
-    if (verdict === VerifyVerdict.PASS && this._missionNeedsRoiGo(run.mission_id, { planIds: run.plan_ids })) {
+    const allowPartial = input.allow_partial_verification === true;
+    if (allowPartial && verdict !== VerifyVerdict.PASS) {
+      throw new Error(
+        "allow_partial_verification is only supported with verdict pass (use verdict partial for honest incomplete review)"
+      );
+    }
+
+    const missionPlans = this.planList({ mission_id: run.mission_id }).plans;
+    const missionEvidence = this.evidenceList({ mission_id: run.mission_id }).evidence;
+    const checkpoint = partialVerificationCheckpoint(missionPlans, missionEvidence, run.plan_ids);
+    const partialCheckpoint = allowPartial && checkpoint.partial_checkpoint;
+
+    if (verdict === VerifyVerdict.PASS && allowPartial && !checkpoint.allowed) {
+      throw new Error(
+        "verify_evaluate(pass) blocked: allow_partial_verification requires at least one substantive roi:go plan in run scope"
+      );
+    }
+    if (
+      verdict === VerifyVerdict.PASS &&
+      !allowPartial &&
+      this._missionNeedsRoiGo(run.mission_id, { planIds: run.plan_ids })
+    ) {
       throw new Error(
         "verify_evaluate(pass) blocked: run plan(s) still need substantive roi:go verification evidence"
       );
     }
     if (verdict === VerifyVerdict.PASS && input.require_verified_proof === true) {
-      const plans = this.planList({ mission_id: run.mission_id }).plans;
-      const evidence = this.evidenceList({ mission_id: run.mission_id }).evidence;
-      if (!runPlansHaveMcpVerifiedGoEvidence(plans, evidence, run.plan_ids)) {
+      const mcpOk = partialCheckpoint
+        ? runPlansHaveMcpVerifiedGoEvidenceForSubstantive(missionPlans, missionEvidence, run.plan_ids)
+        : runPlansHaveMcpVerifiedGoEvidence(missionPlans, missionEvidence, run.plan_ids);
+      if (!mcpOk) {
         throw new Error(
           "verify_evaluate(pass) blocked: require_verified_proof but run plan(s) lack mcp_verified roi:go evidence (use evidence.record with run_oracles: true)"
         );
@@ -1034,7 +1059,8 @@ export class ROIService {
       plan_ids: run.plan_ids
     };
     if (input.run_oracles === true) {
-      const plans = run.plan_ids.map((planId) => this._getLatestPlan(planId));
+      const oraclePlanIds = partialCheckpoint ? checkpoint.substantive_plan_ids : run.plan_ids;
+      const plans = oraclePlanIds.map((planId) => this._getLatestPlan(planId));
       const { oracles_ok: gateOraclesOk } = applyVerifyGateOracleVerification(content, plans, {
         workspaceRoot: defaultRoiWorkspaceRoot()
       });
@@ -1043,6 +1069,16 @@ export class ROIService {
           "verify_evaluate blocked: run_oracles failed one or more verification_targets for run plan(s)"
         );
       }
+    }
+    if (partialCheckpoint) {
+      content.verify_gate = {
+        ...(content.verify_gate && typeof content.verify_gate === "object" ? content.verify_gate : {}),
+        partial_mission: true,
+        open_plans: checkpoint.open_plans,
+        substantive_plan_ids: checkpoint.substantive_plan_ids,
+        substantive_count: checkpoint.substantive_count,
+        open_count: checkpoint.open_count
+      };
     }
     const evidence = this._insertEvidence({
       mission_id: run.mission_id,
@@ -1063,7 +1099,7 @@ export class ROIService {
       return mutation({
         status: "ok",
         summary: `Review ${verdict}`,
-        next_actions: verifyGateNextActions(verdict, input.notes)
+        next_actions: verifyGateNextActions(verdict, { partialCheckpoint })
       }, { run, evidence, verdict });
     }
 
@@ -1108,8 +1144,25 @@ export class ROIService {
       return mutation({
         status: "ok",
         summary: `Review ${verdict}`,
-        next_actions: verifyGateNextActions(verdict, input.notes)
+        next_actions: verifyGateNextActions(verdict, { partialCheckpoint })
       }, { run: updatedRun, evidence, reviews, verdict });
+    }
+
+    if (partialCheckpoint) {
+      updatedRun = this._updateRun({
+        ...updatedRun,
+        status: RUN_PAUSED,
+        summary: "Verify checkpoint pass (partial mission — roi:go still owed)"
+      });
+      return mutation(
+        {
+          status: "ok",
+          summary: "Review pass (partial checkpoint)",
+          next_actions: verifyGateNextActions(verdict, { partialCheckpoint: true }),
+          partial_verification_checkpoint: true
+        },
+        { run: updatedRun, evidence, reviews, verdict }
+      );
     }
 
     return this._finalizeRunIfDone(run.id, {
@@ -1268,6 +1321,7 @@ export class ROIService {
         learning_readiness: this._enlightenmentReadiness(mission_id),
         convergence,
         mission_go_progress: this._missionGoProgress(mission_id),
+        partial_verification_eligible: this._partialVerificationEligible(mission_id),
         implementation_proof_trust: this._missionImplementationProofTrust(mission_id),
         next_actions: this._nextActions(mission_id)
       }
@@ -3161,6 +3215,14 @@ export class ROIService {
     const plans = this._listLatestPlans(missionId);
     const evidence = this.evidenceList({ mission_id: missionId }).evidence;
     return missionGoProgress(plans, evidence, { skipPlanIds: this._convergenceSkipPlanIds(missionId) });
+  }
+
+  _partialVerificationEligible(missionId) {
+    const plans = this._listLatestPlans(missionId);
+    const evidence = this.evidenceList({ mission_id: missionId }).evidence;
+    return partialVerificationEligible(plans, evidence, {
+      skipPlanIds: this._convergenceSkipPlanIds(missionId)
+    });
   }
 
   _missionImplementationProofTrust(missionId) {
