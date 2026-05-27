@@ -1,5 +1,9 @@
 # ROI Rogers
 
+<p align="center">
+  <img src="assets/roi-rogers-banner.png" alt="ROI Rogers — Reusable Operational Intelligence" width="640">
+</p>
+
 ROI Rogers is an operating model for **Reusable Operational Intelligence**: an
 agent-native way to run software delivery through durable missions, plans,
 runs, reviews, evidence, and reusable capabilities instead of chat-only state.
