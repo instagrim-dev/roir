@@ -1755,6 +1755,102 @@ test("ROI verifyEvaluate run_oracles blocks pass when targets fail", async (t) =
   );
 });
 
+test("ROI verifyEvaluate allow_partial checkpoint pass when one plan substantive", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  service.planGenerate({
+    mission_id: mission.id,
+    plans: [
+      {
+        name: "Plan A",
+        actions: ["implement a"],
+        verification_targets: ['node -e "process.exit(0)"']
+      },
+      {
+        name: "Plan B",
+        actions: ["implement b"],
+        verification_targets: ['node -e "process.exit(0)"']
+      }
+    ]
+  });
+  const plans = service.planList({ mission_id: mission.id }).plans;
+  const runResult = await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: plans.map((plan) => plan.id),
+    mode: "local",
+    prompt: "stub"
+  });
+  recordSubstantiveRoiGo(service, mission.id, plans[0]);
+
+  const verified = service.verifyEvaluate({
+    run_id: runResult.run.id,
+    verdict: VerifyVerdict.PASS,
+    allow_partial_verification: true,
+    notes: "wave 1 checkpoint"
+  });
+
+  assert.equal(verified.run.status, RunStatus.PAUSED);
+  assert.ok(verified.next_actions.includes("roi:go"));
+  assert.ok(!verified.next_actions.includes("roi:publish"));
+  assert.equal(verified.partial_verification_checkpoint, true);
+  const gateEvidence = service.evidenceList({ mission_id: mission.id, run_id: runResult.run.id }).evidence.find(
+    (item) => item.source === "verify.evaluate"
+  );
+  assert.equal(gateEvidence.content.verify_gate.partial_mission, true);
+  assert.ok(gateEvidence.content.verify_gate.open_count >= 1);
+  assert.ok(gateEvidence.content.verify_gate.substantive_count >= 1);
+});
+
+test("ROI verifyEvaluate allow_partial rejects verdict partial", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  const run = (await service.runCreate({ mission_id: mission.id, mode: "local", prompt: "stub" })).run;
+  assert.throws(
+    () =>
+      service.verifyEvaluate({
+        run_id: run.id,
+        verdict: VerifyVerdict.PARTIAL,
+        allow_partial_verification: true
+      }),
+    /only supported with verdict pass/
+  );
+});
+
+test("ROI verifyEvaluate allow_partial blocked with zero substantive go", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  const run = (await service.runCreate({ mission_id: mission.id, mode: "local", prompt: "stub" })).run;
+  assert.throws(
+    () =>
+      service.verifyEvaluate({
+        run_id: run.id,
+        verdict: VerifyVerdict.PASS,
+        allow_partial_verification: true
+      }),
+    /at least one substantive/
+  );
+});
+
+test("ROI status_get exposes partial_verification_eligible", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  service.planGenerate({
+    mission_id: mission.id,
+    plans: [
+      { name: "P1", actions: ["a"], verification_targets: ["t"] },
+      { name: "P2", actions: ["b"], verification_targets: ["u"] }
+    ]
+  });
+  const plans = service.planList({ mission_id: mission.id }).plans;
+  recordSubstantiveRoiGo(service, mission.id, plans[0]);
+  const status = service.statusGet({ mission_id: mission.id });
+  const hint = status.summary.partial_verification_eligible;
+  assert.equal(hint.eligible, true);
+  assert.ok(hint.substantive_count >= 1);
+  assert.ok(hint.open_count >= 1);
+  assert.equal(hint.mission_complete, false);
+});
+
 test("ROI verifyEvaluate non-pass next_actions include roi:go", async (t) => {
   const { service } = createHarness(t);
   const mission = seedMission(service);

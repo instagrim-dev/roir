@@ -96,8 +96,16 @@ In [strict verify mode](#strict-verify-mode-d7-w3), call
 `verify_evaluate(run_id, verdict, notes, require_verified_proof: true)` for
 `pass` — MCP rejects pass unless run plans have `verified_by: mcp` go evidence.
 
+**Partial checkpoint pass:** When `mission_go_progress.complete` is false but
+`substantive > 0`, you may call
+`verify_evaluate(run_id, verdict: pass, allow_partial_verification: true, notes: ...)`
+to complete the verify-gate task without claiming mission done. Response includes
+`partial_verification_checkpoint: true` and `next_actions` without `roi:publish`.
+Use `verdict: partial` instead when you do **not** want verify-gate completion.
+
 **Stop (honest):** If `roi:go` blocks on an oracle, external auth, or policy —
-emit summary with blocker and **do not** call `verify_evaluate(pass)`.
+emit summary with blocker and **do not** call `verify_evaluate(pass)` (unless
+recording an intentional partial checkpoint with `allow_partial_verification`).
 
 **Terminal contract:** Stop with publication marker recorded, or with explicit
 `next_actions` the operator must run (`roi:go`, `roi:edit`, human unblock). Do

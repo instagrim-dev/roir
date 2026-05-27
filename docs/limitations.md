@@ -28,9 +28,14 @@ ROI separates **work** from **lifecycle**:
 | ROI | `roi:drive` | Agent orchestrates `run_create`, `verify_evaluate`, publication evidence. When proof is owed, drive **chains the `roi:go` skill** in the same invocation (unless the operator said “drive only”), then re-enters drive. |
 
 `verify_evaluate(pass)` is rejected when run `plan_ids` still need substantive
-`roi:go` evidence. The caller still supplies the verdict; MCP does not re-run
-oracles. A `pass` requires substantive verification evidence (typically from
-`roi:go`), not stub local implement output.
+`roi:go` evidence — unless **`allow_partial_verification: true`** records an
+explicit **checkpoint pass** (≥1 substantive plan, mission incomplete). That is
+not mission completion: `next_actions` omit `roi:publish` and
+`verify_gate.partial_mission` lists open plans. **`verdict: partial`** remains
+the honest label when the verify-gate task should not complete. The caller
+still supplies the verdict; MCP does not re-run oracles unless `run_oracles: true`.
+Full `pass` requires substantive verification evidence for every run plan
+(typically from `roi:go`), not stub local implement output.
 
 `roi:go` must not record verification `pass` without an **implementation proof
 bundle** (product-tree diff or `paths_touched`, plus non-vacuous oracles). See
@@ -51,7 +56,7 @@ Between v0.1.4 and v0.2, all substantive `roi:go` verification rows are
 | **`paths_touched` under `bmo/` or `roi/`**, exists on disk (D7-w2) | Porcelain unless `product_tree` set on `evidence.record` |
 | **`product_tree` on `evidence.record`** — porcelain cross-check for listed paths | |
 | **`verify.evaluate(require_verified_proof: true)`** (D7-w3) — pass needs `mcp_verified` go for run plans | Opt-in via `roi:drive strict` or `ROI_STRICT_VERIFY=1` |
-| Lifecycle gates (`verify_evaluate(pass)` needs go claims for run plans) | |
+| Lifecycle gates (`verify_evaluate(pass)` needs go claims for run plans) | **`allow_partial_verification`** checkpoint pass (opt-in) |
 
 `status_get.implementation_proof_trust` is `mcp_verified` when the latest
 substantive go proof has `implementation_proof.verified_by: mcp`; otherwise

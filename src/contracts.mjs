@@ -681,7 +681,9 @@ export const ToolSchemas = Object.freeze({
     /** D7-w3: pass blocked unless run plans have mcp_verified substantive roi:go */
     require_verified_proof: z.boolean().optional(),
     /** D2-D: MCP runs plan verification_targets and stamps verify_gate on evidence */
-    run_oracles: z.boolean().optional()
+    run_oracles: z.boolean().optional(),
+    /** Checkpoint pass when at least one run plan has substantive roi:go but mission is incomplete */
+    allow_partial_verification: z.boolean().optional()
   }),
   enlightenRun: z.object({ mission_id: z.string() }),
   statusGet: z.object({ mission_id: z.string() })
