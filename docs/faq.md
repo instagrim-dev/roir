@@ -15,11 +15,19 @@ optional bounded delegation path.
 It looks for repeated successful capability activations and creates human-gated
 capability proposals when a reusable pattern is strong enough.
 
-## Can I use the MCP backend without the local integration files?
+## Can I drive the lifecycle helper without installing a host plugin?
 
-Yes. The stdio MCP server is the core runtime surface. The surrounding files
-are there to expose ROI in a local host environment, not to define ROI's
-identity.
+Yes. `node scripts/lifecycle.mjs <verb> '<json-args>'` is the canonical
+interface; skills are a thin wrapper. Run
+`node scripts/lifecycle.mjs --list-verbs` for the registry and
+`pnpm run smoke:integration` for an end-to-end subprocess exercise.
+
+## Does ROI ship an MCP server?
+
+Not in this release. Earlier ROI versions bundled a stdio MCP server;
+the current runtime is the lifecycle helper, invoked per-command by
+each skill. Hosts integrate by registering the ROI skill plugin (or
+Cursor rule), not by speaking MCP to a long-running ROI process.
 
 ## Where does state live?
 

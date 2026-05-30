@@ -9,72 +9,106 @@ Check:
 - you are running commands from the ROI package root (`roi/` checkout or
   unpacked `package/` directory)
 
-## MCP Server Does Not Start
+## Lifecycle Helper Fails To Run
+
+The lifecycle helper (`scripts/lifecycle.mjs`) is the only persistence
+path. If `node scripts/lifecycle.mjs --list-verbs` fails, check:
+
+- `node` is on your `PATH` and reports `>=24` (`node --version`)
+- you are running from the ROI package root so the relative
+  `src/service.mjs` and `.data/` paths resolve
+- no other process has locked `.data/roi.sqlite` unexpectedly
+- `ROI_SQLITE_PATH`, if set, points to a writable location
+
+For a clean reproduction, run the integration smoke against a temp DB:
+
+```bash
+pnpm run smoke:integration
+```
+
+That harness drives the helper as a subprocess (the same way skills do)
+and is the fastest signal that persistence is healthy.
+
+## A Skill Reports `lifecycle: <verb> failed`
+
+The helper exits 1 and prints `lifecycle: <verb> failed: <message>` on
+stderr when the underlying service throws. To see the stack trace:
+
+```bash
+ROI_DEBUG=1 node scripts/lifecycle.mjs <verb> '<json-args>'
+```
+
+Common causes:
+
+- malformed JSON arguments (use `-` to read from stdin for long bodies)
+- unknown verb (run `node scripts/lifecycle.mjs --list-verbs`)
+- missing required fields on the verb's input schema (see
+  `src/contracts.mjs` and the corresponding service method)
+
+## Cursor Does Not Recognize ROI Commands
+
+Cursor has no skill picker; ROI command vocabulary is injected through
+`.cursor/rules/roi-commands.mdc` checked in at the workspace root.
 
 Check:
 
-- `pnpm start` is being run from the ROI package root
-- `node` is available on your `PATH`
-- no other process has locked the local SQLite file unexpectedly
+- you opened the workspace that ships `.cursor/rules/roi-commands.mdc`
+  (the `agent-cli/` workspace, or an equivalent host that includes a
+  copy of the rule)
+- the agent session reloaded after the rule file changed (start a new
+  conversation if needed)
+- to also install Cursor command stubs into `~/.cursor/commands/`, run
+  `scripts/install-agent-skills.sh cursor-user`
 
-## Cursor Does Not Detect The ROI Server
-
-Check:
-
-- you opened the ROI package root itself as the Cursor workspace
-- `.cursor/mcp.json` exists in that workspace
-- `node` is available on your `PATH`
-- dependencies were installed with `pnpm install`
-
-If you opened the parent repo instead of the ROI package root, Cursor will not
-resolve the project-local `${workspaceFolder}` paths the way this package
-expects.
-
-## Copilot Does Not Detect The ROI Server
+## Copilot CLI Does Not Show ROI Skills
 
 Check:
 
-- `~/.copilot/mcp-config.json` includes the `roi` server
-- the server path in that config points to your local `src/server.mjs`
-- `node` is available on your `PATH`
-- dependencies were installed with `pnpm install`
-- you are using GitHub Copilot CLI, not VS Code Copilot
+- you ran `scripts/install-agent-skills.sh copilot` from the ROI package
+  root
+- `~/.copilot/installed-plugins/roi-plugin/` exists and points at this
+  checkout's `skills/` directory
+- `~/.copilot/settings.json` lists `roi-plugin` under installed plugins
+- you restarted `gh copilot` after running the installer
 
-If you copied the template without replacing the placeholder path, Copilot CLI
-will not be able to start the ROI server.
-
-## Codex Does Not List The ROI Server
+## Codex Does Not Surface ROI Skills
 
 Check:
 
-- **`codex mcp list`** shows `roi`, or `~/.codex/config.toml` (or project `.codex/config.toml`) contains `[mcp_servers.roi]` with an absolute path to `src/server.mjs`
-- **`cwd`** in TOML points at your ROI package root when you use the [`codex/config.snippet.toml`](../codex/config.snippet.toml) template
-- the project is **trusted** if you rely on `.codex/config.toml` in-repo (Codex only loads project MCP config for trusted projects)
-- `node` is on your `PATH` and dependencies are installed with `pnpm install` under the ROI package root
+- `scripts/install-agent-skills.sh codex` ran successfully and created
+  `~/.local/share/roi/plugins/roi/` plus
+  `~/.local/share/roi/.agents/plugins/marketplace.json`
+- `~/.codex/config.toml` (or a trusted project `.codex/config.toml`)
+  contains a `[marketplaces.roi-plugin]` block whose `source` points at
+  the generated marketplace root
+- `[plugins."roi@roi-plugin"] enabled = true` is present in the same
+  config file
+- the ROI skills directory is reachable from Codex (no broken symlinks
+  after a checkout move)
 
-See [installation.md](./installation.md) Option 5 and OpenAI’s [Codex MCP](https://developers.openai.com/codex/mcp) docs.
+For the Codex desktop app, after running the installer also click
+**Codex.app → Settings (⚙) → Plugins → ROI → Install**, then restart.
 
 ## Codex Desktop Fails To Add The ROI Marketplace
 
 If Codex.app shows **Failed to add marketplace** for ROI, check the local
-marketplace package rather than the MCP server:
+marketplace package:
 
 - use the generated marketplace root as the source:
-  `~/.local/share/roi` (enter the full absolute path if the UI does not expand
-  `~`)
-- do not use the raw checkout path unless its `.agents/plugins/marketplace.json`
-  is also current
-- clear **Git ref** and **Sparse paths** in the Add Marketplace dialog for local
-  marketplace paths; `--ref` only applies to Git marketplace sources
-- ensure `.agents/plugins/marketplace.json` uses a supported authentication
-  policy: Codex accepts `ON_INSTALL` or `ON_USE`, not `NONE`
-- after `scripts/install-agent-skills.sh codex`, `~/.codex/config.toml` should
-  contain `[marketplaces.roi-plugin]` with `source` pointing at that generated
-  marketplace root and `[plugins."roi@roi-plugin"] enabled = true`
+  `~/.local/share/roi` (enter the full absolute path if the UI does not
+  expand `~`)
+- do not use the raw checkout path unless its
+  `.agents/plugins/marketplace.json` is also current
+- clear **Git ref** and **Sparse paths** in the Add Marketplace dialog
+  for local marketplace paths; `--ref` only applies to Git marketplace
+  sources
+- ensure `.agents/plugins/marketplace.json` uses a supported
+  authentication policy: Codex accepts `ON_INSTALL` or `ON_USE`, not
+  `NONE`
 
 For opaque UI failures, inspect the desktop log under
-`~/Library/Logs/com.openai.codex/YYYY/MM/DD/`; `marketplace/add` entries include
-the underlying parse or source-format error.
+`~/Library/Logs/com.openai.codex/YYYY/MM/DD/`; `marketplace/add` entries
+include the underlying parse or source-format error.
 
 ## You See An Experimental SQLite Warning
 
@@ -90,24 +124,25 @@ This is normal. `roi:draft` typically pauses at `verify_gate`. Use:
 
 ## A Run Is Blocked By Policy
 
-Use `roi:inspect` and inspect the stored policy decision and blocked task state.
-Common causes include destructive or approval-sensitive actions.
+Use `roi:inspect` and inspect the stored policy decision and blocked task
+state. Common causes include destructive or approval-sensitive actions.
 
 ## A Run Is Stuck In `waiting_on_external`
 
-This usually means the A2A path has not yet delivered a reconciled result back
-to local ROI state. Retry with `roi:draft` or inspect the remote side if you are
-testing bounded A2A delegation.
+This usually means the A2A path has not yet delivered a reconciled result
+back to local ROI state. Retry with `roi:draft` or inspect the remote
+side if you are testing bounded A2A delegation.
 
 ## `roi:learn` Returns `noop`
 
-That is expected unless ROI has enough repeated successful activations with
-passing reviews to justify a capability proposal.
+That is expected unless ROI has enough repeated successful activations
+with passing reviews to justify a capability proposal.
 
 ## State Looks Wrong During Local Experimentation
 
-Stop the server and inspect or reset. Because the database runs in WAL mode,
-always remove the sidecar files along with `roi.sqlite`:
+Stop any in-flight helper invocations and inspect or reset. Because the
+database runs in WAL mode, always remove the sidecar files along with
+`roi.sqlite`:
 
 ```bash
 rm -f .data/roi.sqlite .data/roi.sqlite-wal .data/roi.sqlite-shm
@@ -116,5 +151,5 @@ rm -f .data/roi.sqlite .data/roi.sqlite-wal .data/roi.sqlite-shm
 Only do this if you intentionally want to discard local mission history.
 
 See [`state-and-artifacts.md` → "Schema And Migrations"](./state-and-artifacts.md#schema-and-migrations)
-for the reset-vs-migrate policy and when a schema-version bump requires a
-reset rather than a silent restart.
+for the reset-vs-migrate policy and when a schema-version bump requires
+a reset rather than a silent restart.

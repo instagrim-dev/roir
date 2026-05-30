@@ -1,96 +1,151 @@
 # ROI Command Vocabulary
 
+ROI is a **skill-driven** lifecycle. There is no MCP server, no tool
+registry to query, no daemon to keep alive. Each `roi:*` command opens a
+SKILL.md under `skills/` and follows its procedure. Skills shell to
+`node scripts/lifecycle.mjs <verb>` to persist state in SQLite
+(`.data/roi.sqlite` by default).
+
 This file teaches Codex (and any other AGENTS.md-aware host) the ROI
-ergonomic command surface. All commands are aliases over the live ROI MCP
-server registered as the `roi` namespace. The canonical dispatch spec lives
-in `skills/roi-drive/SKILL.md` and `skills/roi-go/SKILL.md`. Keep this file
-in sync when commands change.
+ergonomic command surface and the underlying helper contract. Canonical
+dispatch lives in `skills/roi-drive/SKILL.md` and `skills/roi-go/SKILL.md`.
+Keep this file in sync when commands change.
 
-## Command Aliases → MCP Tool Sequences
+## Command Aliases → Skills
 
-| Alias | Primary MCP calls | Notes |
+| Alias | Stage | Canonical skill |
 |---|---|---|
-| `roi:go [goal]` | `status_get` → `plan_list` → (repo work) → `evidence_record` | Implementation driver — code, oracles, verification evidence |
-| `roi:drive [goal]` | `status_get` → `plan_generate` → `run_create` → `verify_evaluate` → `evidence_record` | ROI lifecycle driver — runs, verify gate, publish (not repo implementation) |
-| `roi:work [goal]` | `mission_create` then stop | Open/initialize a mission |
-| `roi:brief` | `brief_revise` | Refine the active mission's brief |
-| `roi:outline` | `plan_generate` | Generate a plan for the active mission |
-| `roi:plan` | identical to `roi:outline` | Alias; same behavior |
-| `roi:draft` | `run_create` | Start a new run for the active plan |
-| `roi:review` | `status_get` → `review_list` → `verify_evaluate` | Evaluate current state, inspect prior reviews, and record verdict |
-| `roi:publish` | `evidence_record(type=artifact)` | Record a publication marker |
-| `roi:inspect` | `status_get` | Read current mission/run status |
-| `roi:cancel` | `run_cancel` | Cancel the active run |
-| `roi:learn` | `enlighten_run` | Detect reusable patterns in completed run |
+| `roi:start [goal]` | Open / initialize a mission | `skills/roi-start/SKILL.md` |
+| `roi:work [goal]` | Alias for `roi:start` | `skills/roi-work/SKILL.md` |
+| `roi:clarify` | Refine brief | `skills/roi-clarify/SKILL.md` |
+| `roi:brief` | Alias for `roi:clarify` | `skills/roi-brief/SKILL.md` |
+| `roi:source` | Record research findings | `skills/roi-source/SKILL.md` |
+| `roi:research` | Alias for `roi:source` | `skills/roi-research/SKILL.md` |
+| `roi:outline` | Generate plans | `skills/roi-outline/SKILL.md` |
+| `roi:plan` | Alias for `roi:outline` | `skills/roi-plan/SKILL.md` |
+| `roi:go [goal]` | Implement plans in product repo | `skills/roi-go/SKILL.md` |
+| `roi:draft` | Open a run | `skills/roi-draft/SKILL.md` |
+| `roi:run` | Run lifecycle (create / resume) | `skills/roi-run/SKILL.md` |
+| `roi:drive [goal]` | Thin lifecycle orchestrator | `skills/roi-drive/SKILL.md` |
+| `roi:verify` | Record verdict at verify_gate | `skills/roi-verify/SKILL.md` |
+| `roi:review` | Alias for `roi:verify` | `skills/roi-review/SKILL.md` |
+| `roi:edit` | Respond to non-pass verdict | `skills/roi-edit/SKILL.md` |
+| `roi:publish` | Record publication / handoff marker | `skills/roi-publish/SKILL.md` |
+| `roi:learn` | Pattern detection / capability proposal | `skills/roi-learn/SKILL.md` |
+| `roi:enlighten` | Alias for `roi:learn` | `skills/roi-enlighten/SKILL.md` |
+| `roi:inspect` | Read mission state | `skills/roi-inspect/SKILL.md` |
+| `roi:status` | Alias for `roi:inspect` | `skills/roi-status/SKILL.md` |
+| `roi:cancel` | Cancel a run | `skills/roi-cancel/SKILL.md` |
+
+## How a skill runs
+
+Every skill closes with a standard **Reporting** block:
+
+```
+mission_id: <id>
+<stage-specific fields>
+next_actions: <quoted from helper output>
+→ <one sentence interpreting that next step>
+```
+
+Skills do not invent next actions. They quote `next_actions` from the
+helper response verbatim and add one bridge sentence. If `next_actions`
+is empty, the skill says so and stops.
 
 ## Lifecycle Positions
 
-A mission moves through these positions. Use `roi:inspect` to read current
-position; use `roi:drive` to advance the ROI loop; use `roi:go` to implement plans.
-
 ```
 mission created
-  → brief revised       (roi:brief)
-  → plan generated      (roi:outline)
-  → run started         (roi:draft)
-  → run paused at gate  (roi:review)
-  → run completed
-  → mission published   (roi:publish)
+  → brief revised        (roi:clarify)
+  → research recorded    (roi:source — optional)
+  → plans generated      (roi:outline)
+  → implementation done  (roi:go)
+  → run created          (roi:draft / roi:run)
+  → paused at verify_gate (roi:verify — operator-owned)
+  → paused at publish_gate (roi:publish — operator-owned)
+  → terminal             (optional roi:learn)
 ```
+
+`roi:drive` advances through non-gate stages and **stops at the verify
+and publish gates**. The operator runs `roi:verify` and `roi:publish`
+explicitly because both stages produce durable judgments.
 
 ## Two loops
 
 | Loop | Command | What moves |
 |------|---------|------------|
 | Work | `roi:go` | Product repo, tests, `evidence_record` (verification) |
-| ROI | `roi:drive` | Runs, `verify_evaluate`, publication artifact |
+| ROI | `roi:drive` | Status read → delegate to next stage skill; pauses at gates |
 
-`evidence.record` accepts `run_oracles: true` (D7-w1) to MCP-run plan
-`verification_targets` and set `verified_by: mcp`. Without it,
-`implementation_proof_trust` stays `agent_claimed`. **`roi:drive strict`** (or
-`ROI_STRICT_VERIFY=1`) chains go with `run_oracles` and verify pass with
-`require_verified_proof: true` — see `skills/roi-drive/SKILL.md`. Checkpoint
-`verify_evaluate(pass, allow_partial_verification: true)` — see
-`skills/roi-verify/SKILL.md`. Lifecycle
-completion is not external ship proof — see `docs/limitations.md`.
+`roi:drive` is a **thin orchestrator**. It does not edit code, record
+evidence, or record verdicts. Those belong to the named stage skills.
 
-Recommended: `roi:outline` → `roi:go` → `roi:drive`.
+`evidence_record` accepts `run_oracles: true` to have the helper run plan
+`verification_targets` directly and stamp `verified_by: mcp` (legacy stamp
+name; means **helper-verified**). Without it,
+`implementation_proof_trust` stays `agent_claimed`. **Strict** mode
+(operator says "strict" or `ROI_STRICT_VERIFY=1`) chains `roi:go` with
+`run_oracles: true` and `roi:verify` with `require_verified_proof: true`.
+
+Recommended pairing: `roi:outline` → `roi:go` → `roi:drive` (or just
+`roi:drive`, which will invoke `roi:go` when implementation is owed).
+
+## Lifecycle helper contract
+
+```bash
+node scripts/lifecycle.mjs <verb> '<json-args>'
+node scripts/lifecycle.mjs <verb> -          # JSON via stdin (long bodies)
+node scripts/lifecycle.mjs --list-verbs      # canonical verb registry
+```
+
+Output is pretty-printed JSON of the service method's return value on
+stdout. Exit 0 on success, exit 1 with a `lifecycle: <verb> failed: …`
+message on stderr otherwise.
+
+Verbs are snake_case (`mission_create`, `plan_generate`,
+`evidence_record`). The helper's `--list-verbs` output is the canonical
+surface — do not memorize the list.
+
+Storage: `.data/roi.sqlite` by default; override with `ROI_SQLITE_PATH`.
+SQLite WAL handles concurrent invocations safely.
 
 ## Input dispatch (`roi:go` and `roi:drive`)
 
 Priority order:
+
 1. **Mission ID** — if a mission ID is known in context, use it directly.
-2. **Outline JSON** (`roi:go`) — artifact from `plan_generate`; confirm via `plan_list`.
-3. **File path** — `.md` / `.txt` brief or requirements; extract goal, `mission_create` + `brief_revise` when needed.
+2. **Outline JSON** (`roi:go`) — artifact from `plan_generate`; confirm
+   via `plan_list`.
+3. **File path** — `.md` / `.txt` brief or requirements; extract goal,
+   `mission_create` + `brief_revise` when needed.
 4. **Goal string** — search `mission_list` for a match first.
 
 ## Agentic plan strength
 
-Plans and briefs for **multi-turn agent execution** should optimize **outcome
-strength** (invariants, property-style acceptance, falsifiable
-`verification_targets`), not downstream prescription (line numbers, test scripts,
-long file checklists).
+Plans and briefs for **multi-turn agent execution** should optimize
+**outcome strength** (invariants, property-style acceptance, falsifiable
+`verification_targets`), not downstream prescription (line numbers, test
+scripts, long file checklists).
 
-**Canonical guidance:** `skills/references/agentic-plan-strength.md` — applies to
-`roi:brief`, `roi:outline`, `roi:plan`, `roi:draft`, `roi:review`, and CE plan
-bundle materialization (`fixtures/ce-plan-bundle.example.json`).
+**Canonical guidance:** `skills/references/agentic-plan-strength.md` —
+applies to `roi:clarify`, `roi:outline`, `roi:plan`, `roi:draft`,
+`roi:verify`, and CE plan bundle materialization
+(`fixtures/ce-plan-bundle.example.json`).
 
-**Pairing:** CE plan / requirements own *what must remain true*; ROI owns *waves,
-verify gate, and evidence*.
+**Pairing:** CE plan / requirements own *what must remain true*; ROI owns
+*waves, verify gate, and evidence*.
 
 ## Notes
 
-- The ROI MCP server is `node src/server.mjs` from the ROI package root
-  (registered in `~/.codex/config.toml` as `[mcp_servers.roi]`).
-- Tool wire names use underscore form: `roi.mission_create`, `roi.status_get`, etc.
+- The lifecycle helper is the only persistence path. There is no MCP
+  server.
+- Verb names use underscore form: `mission_create`, `status_get`,
+  `evidence_record`, etc.
 - Implementation dispatch: `skills/roi-go/SKILL.md`.
-- Lifecycle dispatch (paused runs, verify gate, one-retry rule):
+- Lifecycle dispatch (status read → delegate; mandatory gates):
   `skills/roi-drive/SKILL.md`.
-- After `roi:drive` completes, suggest `roi:learn` — do not call `enlighten_run`
-  automatically.
-- **Skill plugin:** `$roi-drive`, `$roi-go`, etc. appear in the Codex skill
-  picker after running `scripts/install-agent-skills.sh codex`. Run it once
-  per checkout; symlinks live at `~/.local/share/roi/plugins/roi/skills/`.
-- **Copilot skill plugin:** same commands surface in Copilot after running
-  `scripts/install-agent-skills.sh copilot`. Symlinks live at
-  `~/.copilot/installed-plugins/roi-plugin/roi/skills/`.
+- After `roi:drive` reaches terminal state, suggest `roi:learn` — do not
+  call `enlighten_run` automatically.
+- **Trust honesty:** lifecycle completion is not external-ship proof.
+  Cite git/CI/human review outside ROI when reporting product readiness.
+  See `docs/limitations.md`.

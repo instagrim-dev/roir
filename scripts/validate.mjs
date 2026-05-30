@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 /**
- * Local validation: Node engine, MCP tool manifest parity with server.mjs.
- * Does not run the full test suite (use pnpm test in CI).
+ * Local validation: Node engine + lifecycle helper verb manifest parity.
+ *
+ * Replaces the old `validate.mjs` which checked parity against
+ * `src/server.mjs`. Now the canonical source of verb names is the
+ * `VERBS` registry in `roi/scripts/lifecycle.mjs` (no MCP server).
+ *
+ * Does not run the full test suite (use `pnpm test` in CI).
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getRegisteredToolNames } from "../src/server.mjs";
+import { execFileSync } from "node:child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
@@ -17,20 +22,30 @@ if (major < 24) {
   process.exit(1);
 }
 
-const fixturePath = path.join(root, "fixtures", "mcp-tools.json");
+const fixturePath = path.join(root, "fixtures", "lifecycle-verbs.json");
 if (!fs.existsSync(fixturePath)) {
-  console.error("validate: missing fixtures/mcp-tools.json — run: node scripts/sync-mcp-tools.mjs");
+  console.error("validate: missing fixtures/lifecycle-verbs.json — run: node scripts/sync-lifecycle-verbs.mjs");
   process.exit(1);
 }
 
 const fixture = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
-const live = getRegisteredToolNames();
-const expected = [...fixture.tools].sort();
+const helperPath = path.join(root, "scripts", "lifecycle.mjs");
+const liveOutput = execFileSync(process.execPath, [helperPath, "--list-verbs"], {
+  encoding: "utf8"
+});
+const live = liveOutput
+  .split("\n")
+  .map((line) => line.trim())
+  .filter(Boolean)
+  .sort();
+const expected = [...fixture.verbs].sort();
 
 if (live.length !== expected.length || live.some((n, i) => n !== expected[i])) {
-  console.error("validate: fixtures/mcp-tools.json is out of sync with server.mjs");
-  console.error("Run: node scripts/sync-mcp-tools.mjs");
+  console.error("validate: fixtures/lifecycle-verbs.json is out of sync with lifecycle.mjs");
+  console.error("Run: node scripts/sync-lifecycle-verbs.mjs");
+  console.error(`live (${live.length}): ${live.join(", ")}`);
+  console.error(`expected (${expected.length}): ${expected.join(", ")}`);
   process.exit(1);
 }
 
-console.log(`validate: ok (${live.length} MCP tools, Node ${process.version})`);
+console.log(`validate: ok (${live.length} lifecycle verbs, Node ${process.version})`);

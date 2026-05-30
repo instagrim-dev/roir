@@ -1,26 +1,29 @@
 ---
 name: roi-review
-description: Review draft outputs, record a verdict, and point to the next edit or publish step.
+description: Evaluate a run's evidence and record a verdict. Thin alias for roi:verify.
 ---
 
-**Compound quality gate:** calls `status_get`, `review_list`, then
-`verify_evaluate` to record the verdict.
+# roi:review — alias for `roi:verify`
 
-Use `status_get` (logical `status.get`) and `review_list` to understand the
-current mission and run state. Then use `verify_evaluate` (logical
-`verify.evaluate`) to record the review verdict (`pass`, `partial`, `fail`,
-or `inconclusive`) for the target run. For **strict** missions, pass
-`require_verified_proof: true` on `pass` so only `mcp_verified` substantive
-`roi:go` evidence satisfies the gate (see `roi-drive` strict mode).
+`roi:review` is a thin alias for the verify-gate stage. The canonical
+procedure (read evidence → judge → record verdict) lives in
+**[`roi-verify`](../roi-verify/SKILL.md)** — open it and follow that
+procedure.
 
-Surface the verdict clearly. If the verdict is `pass`, point to `roi:publish`.
-If `fail` or `partial`, point to `roi:edit` and summarize the blocking issues.
+Both skills call `verify_evaluate` via the lifecycle helper and surface
+the verdict (`pass` / `partial` / `fail` / `inconclusive`) to the
+operator. There is no behavioral difference.
 
-**Agentic evidence:** Verdicts should cite **falsified or satisfied properties**
-(acceptance criteria / `verification_targets`), not “touched every file in the
-plan.” See [`references/agentic-plan-strength.md`](../references/agentic-plan-strength.md).
+The `roi:edit → roi:review` loop may repeat multiple times before
+publication. After a passing verdict, `next_actions` points to
+`roi:publish`.
 
-**Re-entry:** when `roi:edit` produces a new draft, return here with
-`roi:review` again. The loop repeats until the run is publishable.
+**Agentic evidence:** Verdicts must cite **falsified or satisfied
+properties** (acceptance criteria / `verification_targets`), not "touched
+every file in the plan." See
+[`references/agentic-plan-strength.md`](../references/agentic-plan-strength.md).
 
-Next action: `roi:edit` (on fail/partial) or `roi:publish` (on pass).
+## Reporting
+
+Use the Reporting block from
+[`roi-verify`](../roi-verify/SKILL.md#reporting).

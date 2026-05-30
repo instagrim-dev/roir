@@ -5,8 +5,11 @@ for Reusable Operational Intelligence.
 
 ## Core Components
 
-- **stdio MCP server**
-  Runs from `src/server.mjs` and exposes the ROI operation surface.
+- **lifecycle helper**
+  `scripts/lifecycle.mjs` is the canonical persistence path. Each
+  `roi:*` skill shells to `node scripts/lifecycle.mjs <verb> '<json-args>'`
+  to dispatch into `ROIService` and persist state. There is no MCP
+  server, daemon, or long-running process.
 - **SQLite system of record**
   Persists missions, briefs, plans, runs, tasks, reviews, traces, evidence,
   patterns, and capabilities in `./.data/roi.sqlite`.
@@ -102,7 +105,9 @@ one-off execution.
 ## Trust Boundaries
 
 - Local SQLite is the source of truth.
-- MCP is the control plane into the ROI backend.
+- The lifecycle helper is the only persistence path; skills shell to it
+  per command and exit cleanly. Hosts compose ROI by registering skills,
+  not by speaking a network protocol to a long-running ROI process.
 - A2A can execute bounded remote work, but it does not replace local state.
 - Capability promotion remains human-gated.
 

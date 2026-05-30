@@ -1,0 +1,47 @@
+# ROI Command Vocabulary (Codex AGENTS.md snippet)
+
+Append the contents of this file to your `~/.codex/AGENTS.md` (or to
+`<project>/.codex/AGENTS.md` for project-scoped vocabulary).
+
+---
+
+## ROI commands
+
+ROI is a skill-driven lifecycle. Each `roi:*` command opens a SKILL.md
+under `<roi-checkout>/skills/` and follows its procedure. Skills shell to
+`node <roi-checkout>/scripts/lifecycle.mjs <verb> '<json>'` to persist
+state in SQLite.
+
+| Command | Stage | Skill |
+|---|---|---|
+| `roi:start [goal]` | Open mission | `skills/roi-start/SKILL.md` |
+| `roi:clarify` | Refine brief | `skills/roi-clarify/SKILL.md` |
+| `roi:source` | Record research | `skills/roi-source/SKILL.md` |
+| `roi:outline` | Generate plans | `skills/roi-outline/SKILL.md` |
+| `roi:go` | Implement plans | `skills/roi-go/SKILL.md` |
+| `roi:draft` / `roi:run` | Open / resume run | `skills/roi-draft/SKILL.md`, `skills/roi-run/SKILL.md` |
+| `roi:drive` | Lifecycle orchestrator (pauses at gates) | `skills/roi-drive/SKILL.md` |
+| `roi:verify` / `roi:review` | Record verdict | `skills/roi-verify/SKILL.md` |
+| `roi:edit` | Respond to non-pass | `skills/roi-edit/SKILL.md` |
+| `roi:publish` | Record publication | `skills/roi-publish/SKILL.md` |
+| `roi:learn` / `roi:enlighten` | Pattern detection | `skills/roi-learn/SKILL.md` |
+| `roi:inspect` / `roi:status` | Read state | `skills/roi-inspect/SKILL.md` |
+| `roi:cancel` | Cancel run | `skills/roi-cancel/SKILL.md` |
+
+The helper's canonical verb surface:
+
+```bash
+node <roi-checkout>/scripts/lifecycle.mjs --list-verbs
+```
+
+`roi:drive` is a thin orchestrator. It reads `next_actions` from the
+helper and opens the corresponding stage skill. **Mandatory pauses** at
+`verify_gate` and `publish_gate` — the operator runs `roi:verify` and
+`roi:publish` explicitly.
+
+Each skill closes with a standard Reporting block surfacing
+`next_actions` verbatim plus one bridge sentence. Do not invent next
+actions; the helper is the authority.
+
+Storage: `<roi-checkout>/.data/roi.sqlite` (override with
+`ROI_SQLITE_PATH`).

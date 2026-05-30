@@ -1,65 +1,101 @@
 ---
-description: ROI ergonomic command vocabulary. Teaches the agent to recognize roi:drive, roi:go, roi:work, roi:cancel, and related aliases as ROI MCP dispatch patterns.
+description: ROI ergonomic command vocabulary. Teaches the agent to recognize roi:drive, roi:go, roi:work, roi:cancel, and related aliases as skill-driven lifecycle stages backed by the lifecycle helper at scripts/lifecycle.mjs (relative to the ROI package root).
 globs: []
 alwaysApply: true
 ---
 
-# ROI Command Vocabulary
+# ROI Command Vocabulary (roi/ subtree scope)
 
-The `roi` MCP server is registered in `.cursor/mcp.json`. All ROI tools are
-available under the `roi.*` namespace. Use the aliases below as ergonomic
-entry points — they map to the MCP tool sequences described here.
+ROI is a **skill-driven** lifecycle. There is no MCP server. Each `roi:*`
+command opens a SKILL.md under `skills/` and follows its procedure.
+Skills shell to `node scripts/lifecycle.mjs <verb>` (paths relative to the
+ROI package root) to read and persist durable state in SQLite
+(`.data/roi.sqlite`).
 
-## Commands → MCP Tool Sequences
+This rule scopes the same vocabulary to the `roi/` subtree. The
+workspace-level rule lives at `../../.cursor/rules/roi-commands.mdc`.
 
-| Command | What it does | Primary MCP calls |
+## Commands → Skills
+
+| Command | Stage | Canonical skill |
 |---|---|---|
-| `roi:go [goal]` | Execute plans in repo — implement, oracles, verification evidence | `status_get` → `plan_list` → (repo work) → `evidence_record` |
-| `roi:drive [goal]` | ROI lifecycle — runs, verify gate, publish (not implementation) | `status_get` → `plan_generate` → `run_create` → `verify_evaluate` → `evidence_record` |
-| `roi:work [goal]` | Open / initialize a mission and stop | `mission_create` |
-| `roi:brief` | Refine the active mission's brief | `brief_revise` |
-| `roi:outline` | Generate a plan for the active mission | `plan_generate` |
-| `roi:plan` | Alias for `roi:outline` — identical behavior | same as above |
-| `roi:draft` | Start a new run for the active plan | `run_create` |
-| `roi:review` | Evaluate current state, inspect prior reviews, and record verdict | `status_get` → `review_list` → `verify_evaluate` |
-| `roi:publish` | Record a publication marker | `evidence_record(type=artifact)` |
-| `roi:inspect` | Read current mission/run status | `status_get` |
-| `roi:cancel` | Cancel the active run | `run_cancel` |
-| `roi:learn` | Detect reusable patterns in a completed run | `enlighten_run` |
+| `roi:start [goal]` | Open mission | `skills/roi-start/SKILL.md` |
+| `roi:work [goal]` | Alias for `roi:start` | `skills/roi-work/SKILL.md` |
+| `roi:clarify` | Refine brief | `skills/roi-clarify/SKILL.md` |
+| `roi:brief` | Alias for `roi:clarify` | `skills/roi-brief/SKILL.md` |
+| `roi:source` | Record research | `skills/roi-source/SKILL.md` |
+| `roi:research` | Alias for `roi:source` | `skills/roi-research/SKILL.md` |
+| `roi:outline` | Generate plans | `skills/roi-outline/SKILL.md` |
+| `roi:plan` | Alias for `roi:outline` | `skills/roi-plan/SKILL.md` |
+| `roi:go [goal]` | Implement plans | `skills/roi-go/SKILL.md` |
+| `roi:draft` | Open run | `skills/roi-draft/SKILL.md` |
+| `roi:run` | Run lifecycle | `skills/roi-run/SKILL.md` |
+| `roi:drive [goal]` | Thin lifecycle orchestrator | `skills/roi-drive/SKILL.md` |
+| `roi:verify` | Record verdict | `skills/roi-verify/SKILL.md` |
+| `roi:review` | Alias for `roi:verify` | `skills/roi-review/SKILL.md` |
+| `roi:edit` | Respond to non-pass | `skills/roi-edit/SKILL.md` |
+| `roi:publish` | Record publication | `skills/roi-publish/SKILL.md` |
+| `roi:learn` | Pattern detection | `skills/roi-learn/SKILL.md` |
+| `roi:enlighten` | Alias for `roi:learn` | `skills/roi-enlighten/SKILL.md` |
+| `roi:inspect` | Read state | `skills/roi-inspect/SKILL.md` |
+| `roi:status` | Alias for `roi:inspect` | `skills/roi-status/SKILL.md` |
+| `roi:cancel` | Cancel run | `skills/roi-cancel/SKILL.md` |
+
+## Helper contract
+
+```bash
+node scripts/lifecycle.mjs <verb> '<json-args>'
+node scripts/lifecycle.mjs --list-verbs
+```
+
+Verbs are snake_case (`mission_create`, `evidence_record`, etc.). Storage
+at `.data/roi.sqlite` by default; override with `ROI_SQLITE_PATH`.
 
 ## Two loops
 
-Work: `roi:go`. ROI lifecycle: `roi:drive`. Recommended: `roi:outline` → `roi:go` → `roi:drive`.
+| Loop | Command |
+|------|---------|
+| Work | `roi:go` — edit product tree, run oracles, record evidence |
+| ROI | `roi:drive` — status read → delegate; mandatory pauses at `verify_gate` and `publish_gate` |
+
+Recommended: `roi:outline` → `roi:go` → `roi:drive`. `roi:drive` may
+invoke `roi:go` in-session when implementation is owed; `verify` and
+`publish` always require operator action explicitly.
 
 ## Input dispatch
 
-1. **Mission ID** — use directly if known.
+1. **Mission ID** — use directly when known.
 2. **Outline JSON** (`roi:go`) — confirm via `plan_list`.
-3. **File path** — extract goal; `mission_create` + `brief_revise` when needed.
+3. **File path** — extract goal; `mission_create` + `brief_revise`.
 4. **Goal string** — `mission_list` first; else `mission_create`.
 
 ## Lifecycle
 
 ```
-mission created → brief revised → plan generated → run started → paused at gate → completed → published
+mission created → brief revised → plan generated → run started
+  → paused at verify_gate (operator runs roi:verify)
+  → paused at publish_gate (operator runs roi:publish)
+  → terminal (optional roi:learn)
 ```
-
-Use `roi:inspect` to read current position. Use `roi:drive` to advance automatically.
 
 ## Agentic plan strength
 
-For multi-turn agent execution, plans and briefs should optimize **outcome strength**
-(invariants, property-style acceptance, falsifiable `verification_targets`) — not
-line numbers, test scripts, or long file checklists. Canonical guide:
-`skills/references/agentic-plan-strength.md` from the ROI package root. Pair with
-CE plans: constraints in CE, waves/gates in ROI.
+For multi-turn agent execution, plans and briefs should optimize
+**outcome strength** (invariants, property-style acceptance, falsifiable
+`verification_targets`). Canonical guide:
+`skills/references/agentic-plan-strength.md`.
 
 ## Full Dispatch Spec
 
 - `skills/roi-go/SKILL.md` — implementation
-- `skills/roi-drive/SKILL.md` — lifecycle (paused runs, verify gate)
+- `skills/roi-drive/SKILL.md` — lifecycle orchestrator (paused gates)
 
 ## Verification
 
-Run `node scripts/integration-smoke.mjs` from the ROI package root to confirm
-the MCP server is live and all tools are registered correctly.
+Run from the ROI package root:
+
+```bash
+node scripts/integration-smoke.mjs
+```
+
+Confirms the lifecycle helper and SQLite schema are healthy.

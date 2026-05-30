@@ -1,37 +1,40 @@
 # Multi-runtime install matrix
 
-ROI ships one **stdio MCP server** (`src/server.mjs`) and one **SQLite system of
-record**. Hosts differ only by how they spawn the process, working directory, and
-config path—not by ROI business logic.
+ROI ships one **lifecycle helper** (`scripts/lifecycle.mjs`) and one
+**SQLite system of record**. Hosts differ only by how they install the
+ROI skills (or, for Cursor, inject the command vocabulary)—not by ROI
+business logic. There is no MCP server, daemon, or long-running process.
 
 **Support tier**
 
-- **Tier 1** — Documented here for **Claude Code, Cursor, GitHub Copilot CLI,
-  OpenAI Codex, and generic MCP**; validation runs `pnpm run release:check`
+- **Tier 1** — Documented here for **Claude Code, Cursor, GitHub Copilot
+  CLI, and OpenAI Codex**; validation runs `pnpm run release:check`
   from the ROI package root on Node 24.x (same backend for every row).
 
-| Runtime | MCP entry | Packaged skills / commands | CI / validation | Env / path assumptions | Tier | Notes |
-|--------|-----------|----------------------------|-----------------|------------------------|------|-------|
-| **OpenAI Codex** | `~/.codex/config.toml` or project `.codex/config.toml`; `[mcp_servers.roi]` stdio | MCP tools; optional `roi` skills via package checkout | `pnpm run release:check` | Absolute `node` + `src/server.mjs`; set `cwd` to ROI package root | 1 | Template + steps: [`codex/config.snippet.toml`](../codex/config.snippet.toml), [installation.md](./installation.md) Option 5. CLI: `codex mcp ...`. |
-| **Claude Code** | stdio `node src/server.mjs` | `plugin.json`, `skills/`, `agents/`, `hooks/` | `pnpm run release:check` | Absolute path to ROI package root | 1 | Primary reference host for skills/agents; see [installation.md](./installation.md). |
-| **Cursor** | Project [`.cursor/mcp.json`](../.cursor/mcp.json) | MCP tools (no bundled skills in Cursor) | `pnpm run release:check` | Open ROI package root as workspace so `${workspaceFolder}` resolves | 1 | MCP-only; command vocabulary comes from `.cursor/rules/roi-commands.mdc`. |
-| **GitHub Copilot CLI** | User `~/.copilot/mcp-config.json` (see Copilot CLI MCP docs) | MCP tools plus local ROI skills | `pnpm run release:check` | User-edited **absolute** path to `src/server.mjs` | 1 | Template: [`copilot/mcp-config.json`](../copilot/mcp-config.json). |
-| **Generic MCP client** | stdio, any spec-compliant host | N/A | `pnpm run smoke` | `cwd` = ROI package root, command `node src/server.mjs` | 1 | Catch-all for hosts not listed above. |
+| Runtime | Skill install | Command surface | Validation | Env / path assumptions | Tier | Notes |
+|---------|---------------|-----------------|------------|------------------------|------|-------|
+| **OpenAI Codex** | `scripts/install-agent-skills.sh codex` writes `~/.local/share/roi/plugins/roi/` and registers the local marketplace in `~/.codex/config.toml` | `$roi-drive`, `$roi-go`, `$roi-work`, … from the Codex skill picker | `pnpm run release:check` | ROI package root must remain reachable from the symlinks the installer creates | 1 | Desktop app also requires **Codex.app → Settings → Plugins → ROI → Install**. See [installation.md](./installation.md). |
+| **Claude Code** | `scripts/install-agent-skills.sh claude-user` (or `claude-project`) symlinks each `skills/<name>/SKILL.md` into `~/.claude/skills/` | `$roi-drive`, `$roi-go`, `$roi-work`, … from the Claude Code skill picker | `pnpm run release:check` | ROI package root reachable from `~/.claude/skills/` symlinks | 1 | Primary reference host for skills/agents; see [installation.md](./installation.md). |
+| **Cursor** | No skill install required; vocabulary loads via `.cursor/rules/roi-commands.mdc` at the workspace root. Optional `scripts/install-agent-skills.sh cursor-user` adds `~/.cursor/commands/` stubs | `roi:drive`, `roi:go`, … recognized by the Cursor agent in any session that loads the rule | `pnpm run release:check` | Workspace must include the rule file (the BMO `agent-cli/` workspace ships it) | 1 | Cursor has no skill picker; rules document the surface to every agent session. |
+| **GitHub Copilot CLI** | `scripts/install-agent-skills.sh copilot` symlinks `skills/` into `~/.copilot/installed-plugins/roi-plugin/` and registers the plugin in `~/.copilot/settings.json` | `$roi-drive`, `$roi-go`, … from the Copilot skill picker | `pnpm run release:check` | ROI package root reachable from the installed-plugins symlink | 1 | Re-run after moving the checkout to refresh symlinks. |
 
 ## Environment
 
-- **`ROI_SQLITE_PATH`** — Optional. When set, the server uses this file for SQLite
-  instead of `.data/roi.sqlite` under the ROI package root. Use for CI smoke
-  tests or isolated experiments so you do not lock the developer database.
+- **`ROI_SQLITE_PATH`** — Optional. When set, the lifecycle helper uses
+  this file for SQLite instead of `.data/roi.sqlite` under the ROI
+  package root. Use for CI smoke tests or isolated experiments so you do
+  not lock the developer database. Skills inherit the variable from the
+  shell that invokes them.
 
 ## Windows
 
-Use pnpm from a Node `>=24` shell. Use forward slashes in JSON configs or
-escaped backslashes. If a host fails to resolve paths, use an absolute
-`server.mjs` path and set the working directory to the ROI package root.
+Use pnpm from a Node `>=24` shell. Use forward slashes in JSON configs
+or escaped backslashes. If a host fails to resolve a skill, ensure the
+ROI package root is reachable from the symlink (or rule file) the
+installer created and that `node` is on `PATH`.
 
 ## Related
 
 - [installation.md](./installation.md) — step-by-step per host
-- [command-reference.md](./command-reference.md) — `roi:*` ↔ MCP tool names
+- [command-reference.md](./command-reference.md) — `roi:*` ↔ lifecycle verbs
 - [limitations.md](./limitations.md) — SQLite locking and single-writer notes

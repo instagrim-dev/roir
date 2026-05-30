@@ -3,15 +3,60 @@ name: roi-source
 description: Record structured source material and findings for an ROI mission.
 ---
 
-**Direct multi-tool:** calls `research_record`, then `research_list` or
-`research_summarize` as needed.
+# roi:source — research recording
 
-Use `research_record` (logical `research.record`) to store each finding with
-question, findings, tradeoffs, sources, and recommendation. Records are
-durable — they persist across sessions and inform outline + draft.
+This skill records research findings on a mission. It owns one stage:
+**capture finding → persist → next-step pointer**.
 
-Use `research_list` to view all recorded sources for a mission, or
-`research_summarize` to get a joined summary of recommendations and open
-questions.
+Records are durable — they persist across sessions and inform outline
+and draft.
 
-Next action: `roi:outline` once source material is sufficient for planning.
+## Inputs
+
+1. **Mission ID** required.
+2. **Finding** — at minimum a `question` and `findings` payload. Optional:
+   `tradeoffs`, `sources` (array of URLs / file paths), `recommendation`.
+
+## Procedure
+
+```bash
+node roi/scripts/lifecycle.mjs research_record '<json>'
+```
+
+Where `<json>` includes:
+
+```json
+{
+  "mission_id": "<id>",
+  "question": "What does internal/ui/ops actually do?",
+  "findings": "Defines four operations the agent invokes via UI helpers...",
+  "tradeoffs": "Hoisting to internal/ops decouples agent from UI but...",
+  "sources": ["bmo/internal/ui/ops/ops.go"],
+  "recommendation": "Hoist; rewrite imports; add guard test."
+}
+```
+
+To inspect existing research:
+
+```bash
+node roi/scripts/lifecycle.mjs research_list '{"mission_id":"<id>"}'
+node roi/scripts/lifecycle.mjs research_summarize '{"mission_id":"<id>"}'
+```
+
+## What this skill does NOT do
+
+- Does not refine the brief — that's `roi:clarify`. Research **informs**
+  the brief; it does not replace it.
+- Does not generate plans — that's `roi:outline`.
+
+## Reporting
+
+```
+mission_id: <id>
+research_records_added: <count>
+next_actions: <quoted from helper output>
+→ <one sentence>
+```
+
+After enough research is captured, `next_actions` typically suggests
+`roi:clarify` (refine brief) or `roi:outline` (generate plans).
