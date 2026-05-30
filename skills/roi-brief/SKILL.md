@@ -1,23 +1,21 @@
 ---
 name: roi-brief
-description: Refine the latest brief with scope, audience, constraints, and success criteria.
+description: Refine the latest brief. Thin alias for roi:clarify.
 ---
 
-**Direct two-step:** calls `brief_get_latest` then `brief_revise`.
+# roi:brief — alias for `roi:clarify`
 
-**Read when scoping agentic work:** [`references/agentic-plan-strength.md`](../references/agentic-plan-strength.md) — briefs own **high-altitude** constraints, not file paths.
+`roi:brief` is a thin alias for the brief-refinement stage. The canonical
+procedure (read latest → revise → persist new revision) lives in
+**[`roi-clarify`](../roi-clarify/SKILL.md)** — open it and follow that
+procedure.
 
-Use `brief_get_latest` (logical `brief.get_latest`) to inspect the current
-brief, then call `brief_revise` (logical `brief.revise`) with the refined
-problem framing, constraints, success criteria, assumptions, open questions,
-and non-goals.
+There is no behavioral difference between `roi:brief` and `roi:clarify`.
+Both create a new brief revision via `brief_revise` on the lifecycle
+helper. Prior revisions remain durable.
 
-**Load-bearing brief fields:** `problem`, `constraints`, `success_criteria`, `non_goals`.
+## Reporting
 
-**Defer to plans:** file paths, line numbers, per-test implementation detail.
-
-Briefs are revision-safe: each call to `brief_revise` creates a new revision
-without overwriting prior ones.
-
-Next action: `roi:source` to gather research, or `roi:outline` if source
-material is already clear.
+Use the Reporting block from
+[`roi-clarify`](../roi-clarify/SKILL.md#reporting). Do not invent a
+parallel template.

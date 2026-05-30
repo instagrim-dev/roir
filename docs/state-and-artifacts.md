@@ -94,27 +94,31 @@ produced.
 ### `roi:go` verification rows (v0.1.4+)
 
 Substantive work evidence uses `source: roi:go`, `type: verification`, and a
-`content.implementation_proof` object. MCP stamps `content.plan_revision` from
-the latest plan row when `plan_id` is set.
+`content.implementation_proof` object. The lifecycle helper stamps
+`content.plan_revision` from the latest plan row when `plan_id` is set.
 
 `status_get` (mission scope) also exposes:
 
 - `mission_go_progress` — per-plan open/substantive counts for completion mode
 - `implementation_proof_trust` — `agent_claimed` (default) or `mcp_verified`
-  when `implementation_proof.verified_by` is `mcp`
+  when `implementation_proof.verified_by` is `mcp` (legacy stamp name; means
+  helper-verified)
 
-`evidence.record` optional fields (D7):
+`evidence_record` optional fields (D7):
 
-- **`run_oracles: true`** — MCP runs `verification_targets`, sets `verified_by: mcp`
-- **`product_tree: bmo|roi`** — porcelain cross-check for `paths_touched` (paths
-  must still be under `bmo/` or `roi/` and exist on disk)
+- **`run_oracles: true`** — helper runs `verification_targets`, sets
+  `verified_by: mcp`
+- **`product_tree: bmo|roi`** — porcelain cross-check for `paths_touched`
+  (paths must still be under `bmo/` or `roi/` and exist on disk)
 
-`verify.evaluate` optional fields:
+`verify_evaluate` optional fields:
 
-- **`require_verified_proof: true`** (D7-w3, default false) — `pass` blocked
-  unless run plans have substantive `mcp_verified` `roi:go` evidence
-- **`run_oracles: true`** (D2-D) — MCP runs `verification_targets` for run
-  plans; stamps `content.verify_gate`; blocks `pass` on target failure
+- **`require_verified_proof: true`** (D7-w3, default false) — `pass`
+  blocked unless run plans have substantive `mcp_verified` `roi:go`
+  evidence
+- **`run_oracles: true`** (D2-D) — helper runs `verification_targets`
+  for run plans; stamps `content.verify_gate`; blocks `pass` on target
+  failure
 
 Trust semantics and v0.2 oracle execution are documented in
 [`docs/meta-design/2026-05-27-roi-implementation-proof-and-executors.md`](../../docs/meta-design/2026-05-27-roi-implementation-proof-and-executors.md).
@@ -144,11 +148,9 @@ The policy is deliberately simple for v0.1:
 - **Authoritative constants.** `defaultSchemaVersion` in
   [`src/db.mjs`](../src/db.mjs) and `ROI_SCHEMA_VERSION` in
   [`src/contracts.mjs`](../src/contracts.mjs) must move together. The
-  embedded MCP server version in
-  [`src/server.mjs`](../src/server.mjs) (`buildServer` → `version`) and
-  the package `version` in [`package.json`](../package.json) should be
-  bumped in lockstep for any schema change (see the release checklist in the
-  contribution docs).
+  package `version` in [`package.json`](../package.json) should be
+  bumped in lockstep for any schema change (see the release checklist in
+  the contribution docs).
 - **Idempotent create.** `openDatabase` runs `migrate()` on every start.
   `migrate()` uses `CREATE TABLE IF NOT EXISTS` for every table and then
   stamps `roi_meta.schema_version` with the current value. Running it against
@@ -191,18 +193,19 @@ Until that lands, the **reset** policy above is the honest answer.
 
 ## Resetting Local State
 
-Stop the MCP server before deleting the SQLite files. Deleting them while the
-server is running is not supported and may leave a partially-written WAL.
+Stop any running lifecycle helper invocations before deleting the SQLite
+files. Deleting them while a helper invocation is mid-write is not
+supported and may leave a partially-written WAL.
 
 ```bash
 # Default path (run from roi/ or a shell with ROI_SQLITE_PATH set).
 rm -f .data/roi.sqlite .data/roi.sqlite-wal .data/roi.sqlite-shm
 ```
 
-The `-wal` and `-shm` sidecar files exist because the server opens the
+The `-wal` and `-shm` sidecar files exist because the helper opens the
 database with `PRAGMA journal_mode = WAL`. Removing only `roi.sqlite` and
 leaving the sidecars can cause SQLite to recover stale state on the next
-start; always remove the trio together.
+helper invocation; always remove the trio together.
 
 If you are pointing at a non-default path via `ROI_SQLITE_PATH`, apply the
 same pattern to that path and its `-wal` / `-shm` siblings.

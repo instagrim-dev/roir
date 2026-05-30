@@ -45,17 +45,25 @@ the release gate is the baseline integrity check for private handoff.
 
 ## 3. Choose A Host
 
-Most users should let their host spawn ROI's stdio MCP server:
+ROI is skill-driven. Each host integrates by registering the ROI skill
+plugin (or, for Cursor, a vocabulary rule); skills shell to
+`scripts/lifecycle.mjs` per command. There is no MCP server to start.
 
-- Cursor: open the ROI package directory as the workspace.
-- Codex: register the MCP server and install the local ROI skill plugin.
-- GitHub Copilot CLI: register the MCP server and install the local ROI skill
-  plugin.
-- Claude Code: register the MCP server and install the ROI skills.
+- Cursor: open the workspace that ships `.cursor/rules/roi-commands.mdc`.
+- Codex: install the ROI skill plugin (`scripts/install-agent-skills.sh codex`).
+- GitHub Copilot CLI: install the ROI skill plugin
+  (`scripts/install-agent-skills.sh copilot`).
+- Claude Code: install the ROI skills
+  (`scripts/install-agent-skills.sh claude-user`).
 
 See [`installation.md`](./installation.md) for exact host steps.
 
-Run `pnpm start` only when debugging the MCP server directly from a terminal.
+For backend smoke checks without a host, drive the helper directly:
+
+```bash
+node scripts/lifecycle.mjs --list-verbs
+node scripts/lifecycle.mjs mission_list '{}'
+```
 
 By default, ROI persists data in:
 
@@ -63,8 +71,8 @@ By default, ROI persists data in:
 roi/.data/roi.sqlite
 ```
 
-The database file is created on first use. Set `ROI_SQLITE_PATH` for isolated
-experiments or parallel sessions.
+The database file is created on first use. Set `ROI_SQLITE_PATH` for
+isolated experiments or parallel sessions.
 
 ## 4. Create A Sample Mission
 
@@ -74,7 +82,7 @@ as the canonical example shape. A minimal mission looks like this:
 ```json
 {
   "title": "Deliver ROI Plugin v1",
-  "goal": "Ship a self-contained ROI plugin with local MCP, SQLite durability, local and A2A execution, review, publication, and learning."
+  "goal": "Ship a self-contained ROI plugin with skill-driven lifecycle, SQLite durability, local and A2A execution, review, publication, and learning."
 }
 ```
 
@@ -150,7 +158,9 @@ lifecycle**, not only after publication. It summarizes:
 
 ## 8. Reset Local State
 
-Stop the MCP server first, then remove the local database:
+Helper invocations are short-lived subprocesses, so nothing keeps the
+database open between commands. Remove the local database and its WAL
+sidecars when you want a clean slate:
 
 ```bash
 rm -f .data/roi.sqlite .data/roi.sqlite-wal .data/roi.sqlite-shm

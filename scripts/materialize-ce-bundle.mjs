@@ -6,12 +6,13 @@
  *   node scripts/materialize-ce-bundle.mjs --bundle ../fixtures/ce-plan-bundle.example.json --mission-id <uuid>
  *   node scripts/materialize-ce-bundle.mjs -b path/to/bundle.json -m <mission_id> [--plan-id <id>] [--dry-run]
  *
- * Uses the same ROI SQLite as the MCP server (ROI_SQLITE_PATH or roi/.data/roi.sqlite).
+ * Uses the same ROI SQLite as the lifecycle helper (ROI_SQLITE_PATH or roi/.data/roi.sqlite).
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createDefaultService } from "../src/server.mjs";
+import { openDatabase } from "../src/db.mjs";
+import { ROIService } from "../src/service.mjs";
 import { materializeBundle } from "../src/ceMaterialize.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -52,9 +53,17 @@ const bundlePath = path.isAbsolute(args.bundle) ? args.bundle : path.resolve(roi
 const raw = fs.readFileSync(bundlePath, "utf8");
 const bundle = JSON.parse(raw);
 
-const service = createDefaultService(
-  process.env.ROI_SQLITE_PATH ? { dbPath: process.env.ROI_SQLITE_PATH } : {}
-);
+function defaultDbPath() {
+  if (process.env.ROI_SQLITE_PATH && process.env.ROI_SQLITE_PATH.trim()) {
+    return process.env.ROI_SQLITE_PATH.trim();
+  }
+  return path.join(roiRoot, ".data", "roi.sqlite");
+}
+
+const dbPath = defaultDbPath();
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const db = openDatabase(dbPath);
+const service = new ROIService({ db });
 const { mission } = service.missionGet({ mission_id: args.missionId });
 if (!mission) {
   console.error(`error: mission ${args.missionId} not found`);

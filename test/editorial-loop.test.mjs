@@ -4,44 +4,30 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { createTestService } from "./_helper-test-driver.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const roiRoot = path.join(__dirname, "..");
-const serverPath = path.join(roiRoot, "src", "server.mjs");
 
-test("ROI editorial loop dogfoods review edit publish learn inspect over stdio MCP", async (t) => {
+test("ROI editorial loop dogfoods review edit publish learn inspect via lifecycle helper", async (t) => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-editorial-loop-"));
   t.after(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  const transport = new StdioClientTransport({
-    command: "node",
-    args: [serverPath],
-    cwd: roiRoot,
-    env: {
-      ...process.env,
-      ROI_SQLITE_PATH: path.join(tmpDir, "editorial-loop.sqlite")
-    }
-  });
-
-  const client = new Client({ name: "roi-editorial-loop-test", version: "0.0.1" });
-  t.after(async () => {
+  const harness = createTestService(path.join(tmpDir, "editorial-loop.sqlite"));
+  t.after(() => {
     try {
-      await client.close();
+      harness.db.close();
     } catch {
       // ignore
     }
   });
 
-  await client.connect(transport);
-  const roi = createEditorialClient(client);
+  const roi = createEditorialClient(harness);
 
   const worked = await roi.work({
     title: "Dogfood the ROI editorial loop",
-    goal: "Exercise the editorial ROI lifecycle over MCP and confirm the published path advances cleanly into learning.",
+    goal: "Exercise the editorial ROI lifecycle in-process and confirm the published path advances cleanly into learning.",
     owner: "roi-test",
     audience: "plugin operator"
   });
@@ -51,7 +37,7 @@ test("ROI editorial loop dogfoods review edit publish learn inspect over stdio M
   const briefed = await roi.brief(missionId, {
     constraints: [
       "Stay self-contained inside roi/",
-      "Keep the MCP contract stable while testing the editorial layer"
+      "Drive the editorial layer through the lifecycle helper, not over MCP"
     ],
     success_criteria: [
       "A failed draft can route into roi:edit",
@@ -83,7 +69,7 @@ test("ROI editorial loop dogfoods review edit publish learn inspect over stdio M
     tradeoffs: [
       "publish is a compound client-side flow over evidence.record"
     ],
-    recommendation: "Use MCP-driven integration coverage to prove the editorial story end to end.",
+    recommendation: "Use in-process integration coverage to prove the editorial story end to end.",
     confidence: 0.86
   });
   assert.deepEqual(sourced.next_actions, ["roi:outline"]);
@@ -204,41 +190,41 @@ test("ROI editorial loop dogfoods review edit publish learn inspect over stdio M
   assert.deepEqual(finalState.summary.next_actions, ["capability.promote", "roi:inspect"]);
 });
 
-function createEditorialClient(client) {
+function createEditorialClient(harness) {
   return {
     work(args) {
-      return callTool(client, "mission_create", args);
+      return harness.call("mission_create", args);
     },
     brief(missionId, args) {
-      return callTool(client, "brief_revise", { mission_id: missionId, ...args });
+      return harness.call("brief_revise", { mission_id: missionId, ...args });
     },
     source(missionId, args) {
-      return callTool(client, "research_record", { mission_id: missionId, ...args });
+      return harness.call("research_record", { mission_id: missionId, ...args });
     },
     outline(missionId, args) {
-      return callTool(client, "plan_generate", { mission_id: missionId, ...args });
+      return harness.call("plan_generate", { mission_id: missionId, ...args });
     },
     draft(missionId, args) {
-      return callTool(client, "run_create", { mission_id: missionId, ...args });
+      return harness.call("run_create", { mission_id: missionId, ...args });
     },
     async review(missionId, runId, args) {
-      const run = (await callTool(client, "run_get", { run_id: runId })).run;
-      await recordSubstantiveRoiGoForRun(client, missionId, run);
+      const run = (await harness.call("run_get", { run_id: runId })).run;
+      await recordSubstantiveRoiGoForRun(harness, missionId, run);
       return {
-        before: await callTool(client, "status_get", { mission_id: missionId }),
-        history: await callTool(client, "review_list", { run_id: runId }),
-        result: await callTool(client, "verify_evaluate", { run_id: runId, ...args })
+        before: await harness.call("status_get", { mission_id: missionId }),
+        history: await harness.call("review_list", { run_id: runId }),
+        result: await harness.call("verify_evaluate", { run_id: runId, ...args })
       };
     },
     async edit(missionId, planId, args) {
       return {
-        before: await callTool(client, "status_get", { mission_id: missionId }),
-        revised_plan: await callTool(client, "plan_revise", {
+        before: await harness.call("status_get", { mission_id: missionId }),
+        revised_plan: await harness.call("plan_revise", {
           plan_id: planId,
           actions: args.actions,
           verification_targets: args.verification_targets
         }),
-        redraft: await callTool(client, "run_create", {
+        redraft: await harness.call("run_create", {
           mission_id: missionId,
           plan_ids: [planId],
           mode: "local",
@@ -248,8 +234,8 @@ function createEditorialClient(client) {
     },
     async publish(missionId, runId, args) {
       return {
-        before: await callTool(client, "status_get", { mission_id: missionId }),
-        recorded: await callTool(client, "evidence_record", {
+        before: await harness.call("status_get", { mission_id: missionId }),
+        recorded: await harness.call("evidence_record", {
           mission_id: missionId,
           run_id: runId,
           type: "publication",
@@ -258,20 +244,20 @@ function createEditorialClient(client) {
           result: args.result,
           content: args.content
         }),
-        after: await callTool(client, "status_get", { mission_id: missionId })
+        after: await harness.call("status_get", { mission_id: missionId })
       };
     },
     learn(missionId) {
-      return callTool(client, "enlighten_run", { mission_id: missionId });
+      return harness.call("enlighten_run", { mission_id: missionId });
     },
     inspect(missionId) {
-      return callTool(client, "status_get", { mission_id: missionId });
+      return harness.call("status_get", { mission_id: missionId });
     }
   };
 }
 
-async function recordSubstantiveRoiGoForRun(client, missionId, run) {
-  const plans = (await callTool(client, "plan_list", { mission_id: missionId })).plans ?? [];
+async function recordSubstantiveRoiGoForRun(harness, missionId, run) {
+  const plans = (await harness.call("plan_list", { mission_id: missionId })).plans ?? [];
   const planIds = new Set((run.plan_ids ?? []).map((id) => String(id)));
   for (const plan of plans) {
     if (planIds.size > 0 && !planIds.has(plan.id)) {
@@ -282,7 +268,7 @@ async function recordSubstantiveRoiGoForRun(client, missionId, run) {
     if (!hasWork) {
       continue;
     }
-    await callTool(client, "evidence_record", {
+    await harness.call("evidence_record", {
       mission_id: missionId,
       type: "verification",
       source: "roi:go",
@@ -298,23 +284,4 @@ async function recordSubstantiveRoiGoForRun(client, missionId, run) {
       }
     });
   }
-}
-
-async function callTool(client, name, args) {
-  const result = await client.callTool({ name, arguments: args });
-  if (result.isError === true) {
-    throw new Error(`${name} failed: ${JSON.stringify(result)}`);
-  }
-  return unwrapStructuredContent(result);
-}
-
-function unwrapStructuredContent(result) {
-  if (result.structuredContent && typeof result.structuredContent === "object") {
-    return result.structuredContent;
-  }
-  const text = result.content?.find((item) => item.type === "text")?.text;
-  if (!text) {
-    throw new Error("tool result did not include structured content");
-  }
-  return JSON.parse(text);
 }

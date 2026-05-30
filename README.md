@@ -10,9 +10,10 @@ runs, reviews, evidence, and reusable capabilities instead of chat-only state.
 
 The current package ships with:
 
-- a bundled stdio MCP server
+- a skill-driven command surface (`roi:start` through `roi:inspect`)
+- a lifecycle helper at `scripts/lifecycle.mjs` that skills shell to for
+  state persistence (no MCP server, no daemon)
 - a local SQLite system of record
-- command-oriented skills for `roi:work` through `roi:inspect`
 - agent descriptors, hook scripts, and A2A-aware execution paths
 
 ## What ROI Is
@@ -42,7 +43,7 @@ ROI v0.1 is intentionally narrow.
 ROI is for people who want to:
 
 - use or adapt a concrete artifact-native workflow engine
-- experiment with local MCP-backed agent workflows
+- experiment with local skill-driven agent workflows
 - explore review-gated execution, resumability, and reusable capability
   promotion
 - build delivery systems that improve with use
@@ -53,9 +54,8 @@ ROI is for people who want to:
 - pnpm
 - A local checkout of this `roi/` directory, or a private `roi-plugin-*.tgz`
   handoff tarball
-- Optional: Cursor for project-local MCP usage
-- Optional: GitHub Copilot CLI
-- Optional: a Claude Code environment for local MCP wiring
+- Optional: Cursor, GitHub Copilot CLI, OpenAI Codex CLI, or Claude Code
+  for skill / vocabulary integration
 - Optional: a remote A2A-compatible peer if you want to exercise the remote
   execution path
 
@@ -90,15 +90,27 @@ After validation, wire the unpacked package into your host with
    pnpm run release:check
    ```
 
-   For a shorter local check, use `pnpm test` or `pnpm run smoke`.
+   For a shorter local check, use `pnpm test` or
+   `pnpm run smoke:integration`.
 
-3. Choose a host integration.
+3. Confirm the lifecycle helper works.
 
-   Most users should let Cursor, Codex, Copilot CLI, or Claude Code spawn the
-   stdio MCP server. Run `pnpm start` only when you want to debug the server
-   directly from a terminal.
+   The helper is the only persistence path — skills shell to it, and so
+   should you when debugging directly:
 
-4. Start with the zero-friction command:
+   ```bash
+   node scripts/lifecycle.mjs --list-verbs
+   node scripts/lifecycle.mjs mission_list '{}'
+   ```
+
+4. Choose a host integration.
+
+   Cursor, Codex, Copilot CLI, and Claude Code each get the ROI command
+   vocabulary (`roi:drive`, `roi:go`, etc.) through the skill plugin and
+   editor rules described in [Local Integration](#local-integration). No
+   MCP server is started or required.
+
+5. Start with the zero-friction command:
 
    `roi:go [mission]` then `roi:drive [mission]` (implement, then lifecycle)
 
@@ -133,17 +145,21 @@ The top-level ROI command surface is:
 
 See [`docs/command-reference.md`](./docs/command-reference.md) for the user
 contract behind each command, including which commands are direct wrappers over
-single MCP operations and which ones are compound client-side flows.
+a single lifecycle verb and which ones are compound skill-layer flows.
 
 ## Runtime Model
 
-- `pnpm start` launches the ROI stdio MCP server from `src/server.mjs`.
-- ROI persists state locally in `.data/roi.sqlite` by default.
+- ROI is skill-driven. Each `roi:*` command opens a `SKILL.md` under
+  [`skills/`](./skills) and shells to `node scripts/lifecycle.mjs <verb>`
+  to persist state. There is no MCP server, daemon, or long-running
+  process to start.
+- ROI persists state locally in `.data/roi.sqlite` by default; override
+  with `ROI_SQLITE_PATH`. SQLite WAL handles concurrent helper invocations.
 - `roi:draft` can execute locally or pause on remote A2A work.
 - convergence missions bind one active seam to one executable plan at a time
 - `roi:review` is the required quality gate before a run is considered ready.
-- `roi:edit` and `roi:publish` are compound skill-layer commands over the same
-  durable backend, not new MCP tool ids.
+- `roi:edit` and `roi:publish` are compound skill-layer commands over the
+  same durable backend, not new lifecycle verbs.
 - publication evidence on a convergence mission finalizes parent progress and
   re-elects the next seam through the backend state model
 - `roi:learn` proposes reusable capabilities but does not promote them
@@ -153,36 +169,34 @@ single MCP operations and which ones are compound client-side flows.
 
 ROI includes local integration files for:
 
-- [`.cursor/mcp.json`](./.cursor/mcp.json)
-- [`copilot/mcp-config.json`](./copilot/mcp-config.json)
-- [`codex/config.snippet.toml`](./codex/config.snippet.toml) (OpenAI Codex CLI / IDE)
-- [`plugin.json`](./plugin.json)
-- [`mcp.json`](./mcp.json)
-- [`skills/`](./skills)
-- [`agents/`](./agents)
-- [`hooks/`](./hooks)
+- [`skills/`](./skills) — canonical command vocabulary (`roi:drive`,
+  `roi:go`, `roi:work`, etc.); installed into Codex, Copilot CLI, and
+  Claude Code via `scripts/install-agent-skills.sh`
+- [`agents/`](./agents) — agent descriptors used by hosts that support them
+- [`hooks/`](./hooks) — hook scripts
+- [`.cursor/rules/roi-commands.mdc`](./.cursor/rules/roi-commands.mdc) —
+  Cursor vocabulary injection (Cursor has no skill picker; the rule
+  documents the command surface to every Cursor agent session)
 
-These files expose ROI's command surface and runtime behavior in a local host
-environment.
+These files expose ROI's command surface and runtime behavior in a local
+host environment. None of them start an MCP server; the ROI runtime is
+the lifecycle helper invoked per-command by each skill.
 
 **Skill plugin install (surfaces `$roi-drive`, `$roi-go`, etc. in the host skill picker):**
 
 ```bash
 # Codex — adds to ~/.local/share/roi/ and ~/.codex/config.toml
-roi/scripts/install-agent-skills.sh codex
+scripts/install-agent-skills.sh codex
 
 # Copilot CLI — adds to ~/.copilot/installed-plugins/ and ~/.copilot/settings.json
-roi/scripts/install-agent-skills.sh copilot
+scripts/install-agent-skills.sh copilot
 
 # Claude Code (user-wide)
-roi/scripts/install-agent-skills.sh claude-user
+scripts/install-agent-skills.sh claude-user
 ```
 
-Cursor gets vocabulary injection via `.cursor/rules/roi-commands.mdc` (already
-checked in); no separate skill-install step required.
-
-OpenAI Codex and GitHub Copilot CLI users should also register the MCP server
-entry — see [`docs/installation.md`](./docs/installation.md).
+Cursor gets vocabulary injection via `.cursor/rules/roi-commands.mdc`
+(already checked in); no separate skill-install step required.
 
 This release documents ROI as a private local-first package. See
 [`docs/installation.md`](./docs/installation.md) for setup and

@@ -1,13 +1,18 @@
 ---
 name: roi-plan
-description: Generate atomic ROI plans with dependencies and verification targets.
+description: Generate ROI plans with waves, dependencies, and verification targets. Thin alias for roi:outline.
 ---
 
-Alias for the outline/planning pass. Follow **`roi-outline`** and read
-[`references/agentic-plan-strength.md`](../references/agentic-plan-strength.md)
-before calling `plan_generate`.
+# roi:plan — alias for `roi:outline`
 
-Use `plan_generate` (logical `plan.generate`) to create one or more atomic plans.
-Keep actions concrete **at the outcome layer**, dependencies explicit, and
-verification targets **property-style oracles** — testable without prescribing
-implementation scripts.
+`roi:plan` is a thin alias for the planning stage. The canonical procedure
+(read brief → compose plans → persist via `plan_generate` → confirm)
+lives in **[`roi-outline`](../roi-outline/SKILL.md)** — open it and follow
+that procedure.
+
+There is no behavioral difference between `roi:plan` and `roi:outline`.
+
+## Reporting
+
+Use the Reporting block from
+[`roi-outline`](../roi-outline/SKILL.md#reporting).

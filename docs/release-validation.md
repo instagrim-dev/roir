@@ -1,27 +1,30 @@
 # Release Validation
 
 This document defines what must be true before ROI can be handed to another
-maintainer as a private distributable artifact.
+maintainer as a private distributable artifact. It mirrors what
+[`scripts/release-check.mjs`](../scripts/release-check.mjs) actually
+executes — keep the two in sync.
 
 ## Publishing Contract
 
-ROI v0.1 is a **private local-first package**, not a public or private registry
-publication.
+ROI v0.1 is a **private local-first package**, not a public or private
+registry publication.
 
 The supported private artifacts are:
 
 - a checked-out `roi/` directory with dependencies installed through `pnpm`
 - a package tarball produced by `pnpm pack --pack-destination <dir>`
-- local host wiring produced from the checkout by `scripts/install-agent-skills.sh`
+- local host wiring produced from the checkout by
+  `scripts/install-agent-skills.sh`
 
-`package.json` remains `"private": true` on purpose. That prevents accidental
-registry publication while still allowing `pnpm pack` for private handoff and
-release validation.
+`package.json` remains `"private": true` on purpose. That prevents
+accidental registry publication while still allowing `pnpm pack` for
+private handoff and release validation.
 
 ## Receiving A Tarball
 
-When a maintainer receives `roi-plugin-*.tgz`, they should verify, unpack, and
-run the release gate before wiring any host to the package:
+When a maintainer receives `roi-plugin-*.tgz`, they should verify, unpack,
+and run the release gate before wiring any host to the package:
 
 ```bash
 shasum -a 256 -c roi-plugin-0.1.0.tgz.sha256
@@ -36,16 +39,34 @@ instead of trusting the tarball by filename alone.
 
 ## Release Gate
 
-ROI is not ready to distribute until all of these pass:
+ROI is not ready to distribute until all of these pass (executed in this
+order by `pnpm run release:check`):
 
-- Node runtime check and MCP tool manifest parity
-- full test suite
-- MCP startup smoke
-- integration smoke for the ergonomic command tools
-- installer dry-runs for Claude, Codex, and Copilot
-- Codex marketplace metadata validation
-- production dependency audit
-- package tarball allowlist inspection
+1. **Lifecycle verb manifest validation** — `pnpm run validate` runs the
+   helper's `--list-verbs` and asserts parity with
+   `fixtures/lifecycle-verbs.json` and a Node `>=24` engine check.
+2. **Codex marketplace contract validation** — checks
+   `.agents/plugins/marketplace.json` against the expected name,
+   plugin, installation policy (`AVAILABLE`), and authentication policy
+   (`ON_INSTALL`); rejects drift between that manifest and the snippet
+   produced by `scripts/install-agent-skills.sh`.
+3. **Full test suite** — `pnpm test` (Node `--test` runner; covers
+   editorial loop, convergence loop, lifecycle helper contract, and
+   ROIService unit tests).
+4. **Integration smoke** — `pnpm run smoke:integration` drives
+   `scripts/lifecycle.mjs` as a subprocess across the canonical phases
+   (verb registry, empty database, mission_create / status_get
+   round-trip, error paths).
+5. **Installer dry-runs** for Claude (`claude-user`), Codex, and Copilot
+   skill plugins.
+6. **Production dependency audit** — `pnpm audit --prod` must report no
+   known vulnerabilities.
+7. **Package tarball inspection** — `pnpm pack` produces a tarball; the
+   gate enforces that listed paths match an allowlist (no
+   `bmo-import/`, `artifacts/`, `.data/`, `node_modules/`, or
+   `package-lock.json`) and includes the runtime surfaces required for
+   handoff (`src/`, `skills/`, `agents/`, `hooks/`, `docs/`,
+   `fixtures/`, `scripts/`, `pnpm-lock.yaml`, `package.json`).
 
 Run the full gate from the ROI package root (`roi/` checkout or unpacked
 `package/` directory):
@@ -65,8 +86,8 @@ pnpm run release:check
   - `.data/`
   - `node_modules/`
   - `package-lock.json`
-- The tarball includes the runtime and validation surfaces required for private
-  handoff:
+- The tarball includes the runtime and validation surfaces required for
+  private handoff:
   - `src/`
   - `skills/`
   - `agents/`
@@ -75,11 +96,13 @@ pnpm run release:check
   - `fixtures/`
   - `scripts/`
   - `pnpm-lock.yaml`
+  - `package.json`
 
 ### 2. Contract Validation
 
-- MCP tool names in `fixtures/mcp-tools.json` match `src/server.mjs`.
-- The ergonomic command tools are discoverable over MCP:
+- Verb names emitted by `node scripts/lifecycle.mjs --list-verbs` match
+  `fixtures/lifecycle-verbs.json`.
+- The ergonomic command verbs are present in that registry:
   - `mission_create`
   - `mission_list`
   - `status_get`
@@ -91,6 +114,10 @@ pnpm run release:check
   - `evidence_list`
   - `brief_revise`
   - `enlighten_run`
+- The integration smoke proves the helper's stdout/stderr/exit-code
+  contract: pretty-printed JSON on stdout, `lifecycle: <verb> failed:`
+  on stderr for service-thrown errors, exit 1 on unknown verbs and
+  malformed JSON.
 
 ### 3. Workflow Validation
 
@@ -100,8 +127,8 @@ The test suite must prove:
 - outline-to-draft flow creates bounded runs
 - draft-to-review flow records evidence
 - review-to-publish or review-to-edit next actions are deterministic
-- learning either proposes a capability or returns an auditable no-promotion
-  outcome
+- learning either proposes a capability or returns an auditable
+  no-promotion outcome
 
 ### 4. Recovery Validation
 
@@ -122,41 +149,45 @@ The test suite must prove:
 
 ### 6. Security And Dependency Validation
 
-`pnpm audit --prod` must report no known vulnerabilities before a private
-package handoff.
+`pnpm audit --prod` must report no known vulnerabilities before a
+private package handoff.
 
-If this ever becomes impossible because of an unpatched transitive dependency,
-the release must stop until `SECURITY.md` or release notes record the exact
-accepted residual risk and why it is not reachable in ROI's supported local
-stdio mode.
+If this ever becomes impossible because of an unpatched transitive
+dependency, the release must stop until `SECURITY.md` or release notes
+record the exact accepted residual risk and why it is not reachable in
+ROI's supported local mode.
 
 ### 7. Marketplace Validation
 
-The checked-in Codex marketplace manifest and the Codex installer-generated
-manifest must agree on the local marketplace identity and supported auth policy:
+The checked-in Codex marketplace manifest and the manifest written by
+`scripts/install-agent-skills.sh codex` must agree on the local
+marketplace identity and supported auth policy:
 
 - marketplace name: `roi-plugin`
 - plugin name: `roi`
 - installation policy: `AVAILABLE`
 - authentication policy: `ON_INSTALL`
 
-`authentication: "NONE"` is not valid for the current Codex local marketplace
-path and must fail `pnpm run release:check`.
+`authentication: "NONE"` is not valid for the current Codex local
+marketplace path and must fail `pnpm run release:check`.
 
 ## Runtime Constraints
 
-Release notes and handoff instructions must preserve these v0.1 constraints:
+Release notes and handoff instructions must preserve these v0.1
+constraints:
 
 - Node.js `>=24`
 - pnpm-only dependency management
 - local SQLite persistence
 - Node's experimental `node:sqlite` API
 - reset-not-migrate schema handling
-- local-first MCP stdio runtime, not a hosted control plane
+- skill-driven runtime: each `roi:*` command shells to
+  `scripts/lifecycle.mjs`. There is no MCP server, no daemon, and no
+  hosted control plane.
 - human-gated capability promotion
 
 ## Principle
 
 If a release cannot prove bounded package contents, durable state,
-resumability, inspectability, and clean dependency posture, it is not yet a
-credible ROI private release.
+resumability, inspectability, and clean dependency posture, it is not
+yet a credible ROI private release.

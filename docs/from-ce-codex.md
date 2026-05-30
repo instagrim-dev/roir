@@ -5,7 +5,7 @@
 
 ---
 
-## Setup (3 steps)
+## Setup (2 steps)
 
 **1. Install dependencies** from the `roi/` directory:
 
@@ -13,34 +13,7 @@
 pnpm install
 ```
 
-**2. Register the ROI MCP server.** Merge the checked-in Codex config snippet
-into your user or project config.
-
-**Option A — CLI (quickest):**
-
-```bash
-codex mcp add roi -- node /absolute/path/to/src/server.mjs
-```
-
-Then open `~/.codex/config.toml` and add `cwd` under the generated entry:
-
-```toml
-[mcp_servers.roi]
-command = "node"
-args = ["/absolute/path/to/src/server.mjs"]
-cwd = "/absolute/path/to/roi"
-```
-
-**Option B — Config snippet (full control):**
-
-Copy `roi/codex/config.snippet.toml` and merge the `[mcp_servers.roi]` block
-into `~/.codex/config.toml` (user-wide) or `.codex/config.toml` (trusted
-project), substituting your actual checkout path.
-
-**Verify MCP:** Run `codex mcp list` or use `/mcp` in the Codex TUI to confirm
-the `roi` server appears.
-
-**3. Install the ROI skill plugin** so `$roi-drive`, `$roi-go`, `$roi-work`,
+**2. Install the ROI skill plugin** so `$roi-drive`, `$roi-go`, `$roi-work`,
 etc. appear in the Codex skill picker (same mechanism as `$ce-brainstorm`):
 
 ```bash
@@ -51,14 +24,18 @@ This creates `~/.local/share/roi/plugins/roi/` and registers it in
 `~/.codex/config.toml`. **Restart Codex** after running to pick up the new
 plugin.
 
-> For full setup detail, see [`installation.md`](./installation.md) Options 2 and 5.
+ROI does not ship an MCP server, daemon, or long-running process. Each
+`roi:*` skill shells to the lifecycle helper (`scripts/lifecycle.mjs`)
+which opens, mutates, and closes the SQLite database in one transaction.
+
+> For full setup detail and other hosts, see [`installation.md`](./installation.md).
 
 ---
 
 ## Hero entry point
 
 Use `$roi-drive` from the Codex skill picker, or describe what you want in
-natural language. Both dispatch the same ROI MCP tool sequence.
+natural language. Both dispatch the same lifecycle helper sequence.
 
 **Skill picker (after plugin install):**
 
@@ -71,13 +48,9 @@ goal as the argument:
 
 > Drive an ROI mission for: Refactor the user authentication module to support OAuth
 
-Either way, Codex calls `roi.status_get` first, then `roi.mission_create` +
-`roi.brief_revise` to open the mission and seed the brief, and continues
-advancing the pipeline from there.
-
-> **First-use note:** Codex may prompt you to approve each `roi.*` tool the
-> first time it is called. Approve once per tool; subsequent calls in the same
-> session proceed without prompts.
+Either way, Codex opens the matching skill, which shells to the lifecycle
+helper for `mission_create` + `brief_revise` to open the mission and seed
+the brief, then continues advancing the pipeline from there.
 
 ---
 
@@ -94,7 +67,7 @@ advancing the pipeline from there.
 **Prompt:**
 > Start an ROI mission for: Refactor the user authentication module to support OAuth
 
-→ Codex calls: `roi.mission_create`, `roi.brief_revise`
+→ Skill shells to: `mission_create`, `brief_revise`
 
 **Expected artifacts:**
 - New mission ID (e.g. `mission_abc123`)
@@ -107,7 +80,7 @@ advancing the pipeline from there.
 > login and session management code, success criteria is OAuth 2.0 PKCE flow
 > working in staging, non-goals are social login providers.
 
-→ Codex calls: `roi.brief_get_latest`, `roi.brief_revise`
+→ Skill shells to: `brief_get_latest`, `brief_revise`
 
 **Expected artifacts:**
 - Updated brief revision with constraints and success criteria
@@ -117,7 +90,7 @@ advancing the pipeline from there.
 **Prompt:**
 > Generate a plan for the current ROI mission
 
-→ Codex calls: `roi.plan_generate`
+→ Skill shells to: `plan_generate`
 
 **Expected artifacts:**
 - Plan stored under the mission with staged task list
@@ -127,7 +100,7 @@ advancing the pipeline from there.
 **Prompt:**
 > Start a run for the current ROI mission
 
-→ Codex calls: `roi.run_create`
+→ Skill shells to: `run_create`
 
 **Expected artifacts:**
 - Run record with staged tasks
@@ -138,7 +111,7 @@ advancing the pipeline from there.
 **Prompt:**
 > Evaluate the ROI verify gate — the implementation is complete and all tests pass
 
-→ Codex calls: `roi.verify_evaluate`, `roi.status_get`
+→ Skill shells to: `verify_evaluate`, `status_get`
 
 **Expected artifacts:**
 - Review record stored under the run
@@ -149,7 +122,7 @@ advancing the pipeline from there.
 **Prompt:**
 > Publish the ROI mission — record that the OAuth refactor is ready for staging review
 
-→ Codex calls: `roi.status_get`, `roi.evidence_record`
+→ Skill shells to: `status_get`, `evidence_record`
 
 **Expected artifacts:**
 - Evidence record stored under the mission
@@ -159,35 +132,31 @@ advancing the pipeline from there.
 
 ## Common gotchas
 
-**Absolute path required.** `~/.codex/config.toml` must contain an absolute
-path to `src/server.mjs`. The `~` shorthand and relative paths are not expanded
-in TOML configs — use the full `/Users/name/...` path.
+**Skill plugin must be registered.** `~/.codex/config.toml` must list the
+ROI plugin path produced by `scripts/install-agent-skills.sh codex`. If
+`$roi-drive` does not appear in the picker, re-run the installer and
+restart Codex.
 
-**`cwd` is required.** Without `cwd = "/absolute/path/to/roi"`, the server may
-fail to find its relative file references. Include it even if Option A (CLI
-add) did not add it automatically.
+**SQLite single-writer.** Only one Codex session should write to
+`roi.sqlite` at a time. If you run multiple sessions, set
+`ROI_SQLITE_PATH` in the shell environment that launches Codex so each
+session targets a distinct database file.
 
-**SQLite single-writer.** Only one Codex session should write to `roi.sqlite`
-at a time. If you run multiple sessions, use `ROI_SQLITE_PATH` under
-`[mcp_servers.roi.env]` in `config.toml` to point each session at a different
-database file.
-
-**`verify_gate` pause is intentional.** When a run pauses with `next_actions:
-[roi:review]`, the run is waiting for your verdict. Prompt Codex to "evaluate
-the ROI verify gate" (calls `roi.verify_evaluate`). Do not create a new run;
-that does not advance the paused one.
+**`verify_gate` pause is intentional.** When a run pauses with
+`next_actions: [roi:review]`, the run is waiting for your verdict. Prompt
+Codex to "evaluate the ROI verify gate" (skill shells to
+`verify_evaluate`). Do not create a new run; that does not advance the
+paused one.
 
 **Tool-approval prompts are expected on first use.** Codex may ask you to
-approve each `roi.*` tool the first time it is invoked in a session. This is
-normal — approve once and continue.
+approve each shell call from the ROI skills the first time it runs.
+Approve once and continue.
 
 ---
 
 ## First-mission checklist
 
 - [ ] `pnpm install` completed with no errors
-- [ ] `~/.codex/config.toml` (or project `.codex/config.toml`) contains `[mcp_servers.roi]` with correct absolute path
-- [ ] `codex mcp list` (or `/mcp` in TUI) shows the `roi` server
 - [ ] `scripts/install-agent-skills.sh codex` ran successfully; Codex restarted
 - [ ] `$roi-drive` appears in the Codex skill picker (type `$` to open)
 - [ ] `$roi-drive [goal]` (or equivalent natural-language prompt) returned a new mission ID

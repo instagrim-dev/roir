@@ -1,12 +1,11 @@
 {
   "name": "roi-plugin",
   "version": "0.1.0",
-  "description": "ROI: Reusable Operational Intelligence plugin and bundled MCP backend",
+  "description": "ROI: Reusable Operational Intelligence — skill-driven lifecycle on top of an in-process service",
   "type": "module",
   "private": true,
   "files": [
     ".agents/",
-    ".cursor/",
     "AGENTS.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
@@ -21,8 +20,6 @@
     "examples/",
     "fixtures/",
     "hooks/",
-    "mcp.json",
-    "plugin.json",
     "pnpm-lock.yaml",
     "scripts/",
     "skills/",
@@ -30,14 +27,12 @@
     "test/"
   ],
   "scripts": {
-    "start": "node src/server.mjs",
     "test": "ROI_ALLOW_LOCAL_STUB=1 node --test",
     "validate": "node scripts/validate.mjs",
-    "smoke": "node scripts/mcp-smoke.mjs",
     "smoke:integration": "node scripts/integration-smoke.mjs",
     "release:check": "node scripts/release-check.mjs",
     "materialize:ce": "node scripts/materialize-ce-bundle.mjs",
-    "sync:mcp-tools": "node scripts/sync-mcp-tools.mjs",
+    "sync:lifecycle-verbs": "node scripts/sync-lifecycle-verbs.mjs",
     "install:skills": "bash ./scripts/install-agent-skills.sh claude-user",
     "install:skills:claude": "bash ./scripts/install-agent-skills.sh claude-user",
     "install:skills:claude-project": "bash ./scripts/install-agent-skills.sh claude-project",
@@ -50,7 +45,6 @@
   },
   "dependencies": {
     "@a2a-js/sdk": "^0.3.13",
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "express": "^5.2.1",
     "zod": "^4.4.3"
   }

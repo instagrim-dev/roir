@@ -1,13 +1,29 @@
 ---
 name: roi-work
-description: Open a new ROI mission and seed the first working brief.
+description: Open a new ROI mission and seed the first brief. Thin alias for roi:start.
 ---
 
-**Direct:** calls `mission_create` (logical `mission.create`) once and returns.
+# roi:work — alias for `roi:start`
 
-Use `mission_create` to open the mission with a title and goal. The server
-automatically seeds the first brief revision.
+`roi:work` is a thin alias kept for compatibility with operator vocabulary
+that says "start working on…" or "open a mission for…". The actual stage
+procedure lives in **[`roi-start`](../roi-start/SKILL.md)** — open it and
+follow that procedure.
 
-Summarize the new mission ID, goal, and next action.
+Both skills:
 
-Next action: `roi:brief` to refine scope, constraints, and success criteria.
+1. Resolve input (mission ID / file / goal string).
+2. Call `mission_create` via the lifecycle helper when no matching mission
+   exists.
+3. Report `mission_id`, `goal`, and `next_actions` in the standard
+   Reporting block.
+
+There is no behavioral difference between `roi:work` and `roi:start`.
+Operators can use whichever phrasing comes naturally; the lifecycle ends
+up in the same state.
+
+## Reporting
+
+Use the same Reporting block as `roi:start`. Do not duplicate the
+template here — the canonical version lives in
+[`roi-start`](../roi-start/SKILL.md#reporting).

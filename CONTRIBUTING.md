@@ -19,10 +19,11 @@ pnpm install
 pnpm test
 ```
 
-Run the server locally with:
+Run the lifecycle helper directly when debugging persistence:
 
 ```bash
-pnpm start
+node scripts/lifecycle.mjs --list-verbs
+node scripts/lifecycle.mjs mission_list '{}'
 ```
 
 ## What To Validate
@@ -30,13 +31,15 @@ pnpm start
 Before opening a change:
 
 - run `pnpm test` (or `npm test`)
-- run `pnpm run validate` (Node ≥24, MCP tool list matches `fixtures/mcp-tools.json`)
-- optional: `pnpm run smoke` (stdio MCP against a temp DB via `ROI_SQLITE_PATH`)
+- run `pnpm run validate` (Node ≥24, lifecycle-verb manifest matches
+  `fixtures/lifecycle-verbs.json`)
+- optional: `pnpm run smoke:integration` (drives `scripts/lifecycle.mjs`
+  end-to-end against a temp DB via `ROI_SQLITE_PATH`)
 - verify docs match the actual runtime behavior
 - keep command names and lifecycle language consistent
 - keep `learn` / `learning` terminology consistent across user-facing docs;
-  the internal MCP tool remains `enlighten_run`, but the product learning pass
-  is **`roi:learn`** (see
+  the internal lifecycle verb remains `enlighten_run`, but the product
+  learning pass is **`roi:learn`** (see
   `docs/command-reference.md`)
 
 ## Release checklist
@@ -44,11 +47,10 @@ Before opening a change:
 When cutting a release or bumping `package.json` `version`:
 
 1. Update this `CHANGELOG.md` under the new version.
-2. Keep the MCP server `version` string in `src/server.mjs` aligned with release
-   policy (currently `0.1.0` alongside npm `0.1.0`).
-3. After adding, removing, or renaming MCP tools in `server.mjs`, run
-   `pnpm run sync:mcp-tools` and commit `fixtures/mcp-tools.json`.
-4. Run `pnpm run validate`, `pnpm test`, and `pnpm run smoke`.
+2. After adding, removing, or renaming verbs in `scripts/lifecycle.mjs`, run
+   `pnpm run sync:lifecycle-verbs` and commit `fixtures/lifecycle-verbs.json`.
+3. Run `pnpm run validate`, `pnpm test`, and `pnpm run smoke:integration`.
+4. Run the full release gate: `pnpm run release:check`.
 
 ## Documentation Expectations
 

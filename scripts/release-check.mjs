@@ -183,10 +183,9 @@ function inspectPackage() {
 }
 
 try {
-  run("Validate MCP tool manifest", "pnpm", ["run", "validate"]);
+  run("Validate lifecycle verb manifest", "pnpm", ["run", "validate"]);
   inspectMarketplaceContract();
   run("Run test suite", "pnpm", ["test"]);
-  run("Run MCP smoke", "pnpm", ["run", "smoke"]);
   run("Run integration smoke", "pnpm", ["run", "smoke:integration"]);
   run("Dry-run Claude skill install", "bash", [
     "scripts/install-agent-skills.sh",
