@@ -14,7 +14,7 @@
 
 import { openDatabase } from "../src/db.mjs";
 import { ROIService } from "../src/service.mjs";
-import { VERB_TO_METHOD } from "../scripts/lifecycle.mjs";
+import { VERB_TO_METHOD, dispatchVerb } from "../scripts/lifecycle.mjs";
 
 export function createTestService(sqlitePath) {
   const db = openDatabase(sqlitePath);
@@ -27,7 +27,7 @@ export function createTestService(sqlitePath) {
       if (!method || typeof service[method] !== "function") {
         throw new Error(`unknown verb: ${verb}`);
       }
-      return service[method](args);
+      return dispatchVerb({ db, service, verb, method, args });
     }
   };
 }

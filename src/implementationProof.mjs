@@ -178,7 +178,16 @@ export function validatePathsTouchedOnDisk(
         `roi:go verification pass paths_touched must be under bmo/ or roi/: ${touched}`
       );
     }
-    const resolved = path.join(root, normalized);
+    // Resolve-then-contain: a literal `bmo/`/`roi/` prefix is not sufficient
+    // because `roi/../../etc/passwd` passes startsWith() yet escapes `root`.
+    // Require the resolved path to stay within `root` (no `..` traversal).
+    const resolved = path.resolve(root, normalized);
+    const rel = path.relative(root, resolved);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      throw new Error(
+        `roi:go verification pass paths_touched escapes the workspace root: ${touched}`
+      );
+    }
     if (!fs.existsSync(resolved)) {
       throw new Error(`roi:go verification pass paths_touched not found on disk: ${touched}`);
     }

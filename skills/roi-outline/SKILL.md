@@ -117,7 +117,54 @@ covers outcome strength, binding altitude, and property-style verification.
      test framework?", "which package name should we pick?") → outline
      may pick a default based on repo conventions and proceed.
 
-4. Compose the plans. Each plan is an object:
+4. **Challenge speculative new abstractions.** Before composing plans,
+   inspect the brief and any draft plan structure for proposals to
+   introduce a **new abstraction layer** the codebase did not previously
+   contain — a new helper, type, package, indirection, framework,
+   coordinator, manager, registry, or "clean boundary."
+
+   For each such proposal, the brief must answer:
+
+   1. **Which existing seam was considered first?** Name the package,
+      type, or function the responsibility could plausibly attach to.
+   2. **Why can't that seam carry the work?** One sentence per rejection
+      reason, grounded in what the seam does today (read the file,
+      not the model's prior of what the file does).
+   3. **What is the falsifiable invariant the new layer enforces?**
+      Aesthetic invariants ("clean boundaries," "better separation")
+      are not falsifiable. Architectural invariants are
+      ("no package outside `internal/agent/**` may import
+      `internal/agent/internal/`").
+
+   If the brief does not answer all three, the abstraction is
+   **speculative** and must be either:
+
+   - **Demoted to an `assumption`** in the brief (via `brief_revise`),
+     so `roi:outline` can attach a verification target that falsifies
+     it during `roi:go`, *or*
+   - **Removed from scope** until evidence forces it.
+
+   **Why this matters:** models are persuasive about new structure.
+   "Introduce a `pkg/foo` coordinator to centralize X" reads as
+   competent design but smuggles in an architectural commitment that
+   the operator may not have evaluated. Once `internal/foo/coordinator.go`
+   exists, removing it costs roughly an order of magnitude more than
+   refusing it would have cost. The plan-time challenge is the cheapest
+   place to refuse.
+
+   **Stop condition for this step** (procedural — the agent must
+   self-enforce; `plan_generate` does not reject this mechanically):
+
+   - The brief proposes a new abstraction without answering the three
+     questions above → `brief_revise` to either ground the abstraction
+     (named seam considered, named falsifiable invariant) or demote it
+     to an `assumption`. **Do not call `plan_generate`** with a
+     speculative new layer encoded as a constraint.
+
+   See [`references/agentic-plan-strength.md`](../references/agentic-plan-strength.md)
+   "Abstraction restraint" for the doctrine and rubric scoring.
+
+5. Compose the plans. Each plan is an object:
 
    ```json
    {
@@ -148,7 +195,7 @@ covers outcome strength, binding altitude, and property-style verification.
    call `plan_revise` after the fact to wire dependencies once all UUIDs
    exist.
 
-5. Persist:
+6. Persist:
 
    ```bash
    node roi/scripts/lifecycle.mjs plan_generate '<json>'
@@ -157,13 +204,13 @@ covers outcome strength, binding altitude, and property-style verification.
    `<json>` is `{"mission_id": "<id>", "plans": [<plan>, ...]}`. Output
    echoes the generated plan UUIDs and revisions.
 
-6. Confirm storage:
+7. Confirm storage:
 
    ```bash
    node roi/scripts/lifecycle.mjs plan_list '{"mission_id":"<id>"}'
    ```
 
-7. If a plan needs adjustment after generation, use:
+8. If a plan needs adjustment after generation, use:
 
    ```bash
    node roi/scripts/lifecycle.mjs plan_revise '<json>'
@@ -181,6 +228,7 @@ covers outcome strength, binding altitude, and property-style verification.
 | `verification_targets` | Runnable gates (`go test -run …`, build, grep). Each must fail when the action did not land. |
 | `dependencies` | Plan UUIDs from the same mission; CE `unit.id` only when bundling |
 | `wave` | Integer; lower waves run first; same wave = parallelizable |
+| `actions` (abstraction restraint) | If an action introduces a new helper / type / package / coordinator / framework / boundary that didn't exist before, the brief must name the existing seam considered first and a falsifiable invariant the new layer enforces. See procedure step 4. |
 
 ## Verification target authoring discipline
 

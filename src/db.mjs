@@ -8,10 +8,43 @@ export function openDatabase(dbPath) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA journal_mode = WAL;");
+  // foreign_keys is enabled defensively, but the schema intentionally stores
+  // each entity as a serialized `data_json` blob keyed by an opaque id rather
+  // than as normalized columns with REFERENCES clauses. Referential integrity is
+  // therefore enforced in the service layer (existence checks before writes),
+  // not by SQLite FKs. The pragma is a no-op against the current blob schema and
+  // is kept only so any future normalized column with a real FK is enforced.
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("PRAGMA busy_timeout = 30000;");
-  migrate(db);
+  withTransaction(db, () => migrate(db));
   return db;
+}
+
+/**
+ * Run `fn` inside a single `BEGIN IMMEDIATE … COMMIT` transaction so that a
+ * multi-statement service mutation is atomic: either every write lands or none
+ * does. `BEGIN IMMEDIATE` takes the write lock up front, so concurrent helper
+ * processes serialize cleanly under `busy_timeout` instead of interleaving at
+ * statement granularity.
+ *
+ * Only safe for synchronous `fn`. Do NOT wrap work that awaits I/O (e.g. an
+ * A2A network round-trip) — a held SQLite write lock must not span an await.
+ */
+export function withTransaction(db, fn) {
+  db.exec("BEGIN IMMEDIATE;");
+  let result;
+  try {
+    result = fn();
+  } catch (err) {
+    try {
+      db.exec("ROLLBACK;");
+    } catch {
+      /* rollback best-effort; surface the original error */
+    }
+    throw err;
+  }
+  db.exec("COMMIT;");
+  return result;
 }
 
 function migrate(db) {
@@ -203,11 +236,32 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_policy_decisions_run_id ON policy_decisions (run_id);
   `);
 
+  // Versioned migration steps. The block above is the idempotent baseline
+  // (CREATE TABLE/INDEX IF NOT EXISTS) shared by fresh and existing databases.
+  // Each entry below transforms an *existing* database from its prior version
+  // to the next. Steps run in order, only those newer than the on-disk
+  // `currentVersion`, and the stamped version reflects what actually applied —
+  // so a future ALTER TABLE / backfill lands on existing data instead of being
+  // silently skipped by a no-op CREATE TABLE IF NOT EXISTS. Append-only: never
+  // mutate a shipped step; add the next version with a higher key.
+  const migrationSteps = new Map([
+    // [targetVersion, (db) => { /* ALTER TABLE …, backfill … */ }],
+  ]);
+
+  let applied = currentVersion;
+  for (const [targetVersion, step] of migrationSteps) {
+    if (targetVersion > applied) {
+      step(db);
+      applied = targetVersion;
+    }
+  }
+  const reachedVersion = Math.max(applied, defaultSchemaVersion);
+
   db.prepare(
     `
       INSERT INTO roi_meta(key, value)
       VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `
-  ).run("schema_version", String(defaultSchemaVersion));
+  ).run("schema_version", String(reachedVersion));
 }

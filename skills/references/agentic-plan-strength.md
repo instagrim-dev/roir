@@ -68,6 +68,7 @@ Score the artifact; **do not** treat high sums as “more lines.”
 | **Replay value** | Line anchors | Mostly stable | Stable across rebase |
 | **Orchestration fit** | Markdown only | CE or ROI alone | CE constraints + ROI waves/gates |
 | **Execution topology** | Agent counts in plan | Waves only | Waves + mutual exclusion where overlap risky |
+| **Abstraction restraint** | New helper / type / package introduced without naming the existing seam considered | New layer named, but justified only by aesthetic invariants ("clean boundaries") | New layer named existing seam considered, rejection reason grounded in seam behavior, falsifiable architectural invariant the layer enforces — *or* no new abstraction at all |
 
 **Emergent strength** ≈ high falsifiability + invariants + scope, without
 requiring mechanical prescription.
@@ -225,6 +226,49 @@ Add one plan sentence only when needed:
 
 ---
 
+## Abstraction restraint
+
+A frequent failure mode in model-generated plans is the **speculative new
+abstraction layer**: a helper, type, package, indirection, framework,
+coordinator, manager, registry, or "clean boundary" the codebase did not
+previously contain. Models are persuasive about new structure — "introduce
+a `pkg/foo` coordinator to centralize X" reads as competent design — but
+once the layer exists, removing it costs roughly an order of magnitude
+more than refusing it would have. Prefer existing seams; force evidence
+before adding new ones.
+
+**Plan-time bar (scored on the rubric row above):**
+
+A plan that introduces a new abstraction must answer three questions in
+the brief or plan scope:
+
+1. **Which existing seam was considered first?** Name the package, type,
+   or function the responsibility could plausibly attach to.
+2. **Why can't that seam carry the work?** One sentence per rejection
+   reason, grounded in what the seam does today (read the file, not the
+   model's prior of what the file does).
+3. **What falsifiable architectural invariant does the new layer
+   enforce?** Aesthetic invariants ("clean boundaries", "better
+   separation") are not falsifiable. "No package outside
+   `internal/agent/**` may import `internal/agent/internal/`" is.
+
+If the brief proposes new structure without these three answers, the
+abstraction is **speculative** and should be either demoted to an
+`assumption` (so a verification target can falsify it during `roi:go`) or
+removed from scope until evidence forces it. `roi:outline` applies this as
+a procedural `plan_generate` stop condition the agent must self-enforce —
+the helper does not mechanically reject a plan that encodes a speculative
+abstraction — see the `roi-outline` SKILL.md procedure step 4.
+
+**Why doctrine names this:** the `actions` and `scope` rubric rows alone
+don't catch a smuggled abstraction, because a new layer can be described
+in property-style language and pass falsifiability tests scoped to itself.
+The `Abstraction restraint` row scores whether the *premise* — that a new
+layer is needed — was justified, not whether the new layer's behavior is
+testable.
+
+---
+
 ## Anti-patterns
 
 - **False precision:** “~line 575” — stale after one edit
@@ -234,6 +278,7 @@ Add one plan sentence only when needed:
 - **Merged waves for convenience:** U4/U5/U6 as one plan when rescore needs atomic landings
 - **Agent theater:** “spawn 4 explore agents” with no role-specific oracle
 - **Parallelism without exclusion:** two implementers on overlapping write paths
+- **Speculative new abstraction:** introducing `pkg/foo` / a coordinator / a manager / a "clean boundary" the codebase didn't previously need, justified by aesthetic invariants ("better separation", "cleaner") rather than a named existing seam considered first and a falsifiable architectural invariant. See the *Abstraction restraint* section above.
 
 ---
 
