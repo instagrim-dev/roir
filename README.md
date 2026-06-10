@@ -196,7 +196,10 @@ scripts/install-agent-skills.sh claude-user
 ```
 
 Cursor gets vocabulary injection via `.cursor/rules/roi-commands.mdc`
-(already checked in); no separate skill-install step required.
+(already checked in); no separate skill-install step is required for this
+checkout. To surface the ROI vocabulary user-wide in other Cursor projects,
+run `scripts/install-agent-skills.sh cursor-user` (installs the command
+rules into `~/.cursor/rules/`).
 
 This release documents ROI as a private local-first package. See
 [`docs/installation.md`](./docs/installation.md) for setup and
