@@ -20,8 +20,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { openDatabase } from "../src/db.mjs";
+import { openDatabase, withTransaction } from "../src/db.mjs";
 import { ROIService } from "../src/service.mjs";
+import { ToolSchemas } from "../src/contracts.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const roiRoot = path.join(__dirname, "..");
@@ -107,6 +108,47 @@ const VERB_TO_METHOD = new Map(VERBS);
 
 export { VERB_TO_METHOD };
 
+// Verbs whose service method awaits I/O (e.g. an A2A network round-trip).
+// These must NOT be wrapped in the synchronous SQLite transaction helper,
+// because a held write lock must not span an await. They manage their own
+// resumable state instead.
+const ASYNC_NETWORK_VERBS = new Set(["run_create", "run_resume"]);
+
+/**
+ * Validate `args` for `method` against its ToolSchemas entry. Returns the
+ * parsed (unknown-key-stripped, type-checked) value so untrusted JSON cannot
+ * reach business logic unchecked. Methods without a schema entry pass through
+ * unchanged. Throws an Error with a readable issue list on validation failure.
+ */
+export function validateArgs(method, args) {
+  const schema = ToolSchemas[method];
+  if (!schema) return args;
+  const parsed = schema.safeParse(args);
+  if (!parsed.success) {
+    const detail = parsed.error.issues
+      .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      .join("; ");
+    throw new Error(`invalid arguments: ${detail}`);
+  }
+  return parsed.data;
+}
+
+/**
+ * Validate then dispatch a verb against the service. Synchronous verbs run
+ * inside a single transaction so every write in the method is atomic;
+ * async network verbs run outside the sync transaction wrapper.
+ *
+ * Shared by the CLI (scripts/lifecycle.mjs) and the in-process test driver
+ * so validation + transaction semantics cannot drift between the two paths.
+ */
+export function dispatchVerb({ db, service, verb, method, args }) {
+  const validated = validateArgs(method, args);
+  if (ASYNC_NETWORK_VERBS.has(verb)) {
+    return service[method](validated);
+  }
+  return withTransaction(db, () => service[method](validated));
+}
+
 function usage() {
   return [
     "Usage: node roi/scripts/lifecycle.mjs <verb> '<json-args>'",
@@ -179,7 +221,7 @@ async function main() {
 
   let result;
   try {
-    result = await service[method](args);
+    result = await dispatchVerb({ db, service, verb, method, args });
   } catch (err) {
     process.stderr.write(`lifecycle: ${verb} failed: ${err.message}\n`);
     if (process.env.ROI_DEBUG) process.stderr.write(`${err.stack}\n`);

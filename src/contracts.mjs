@@ -395,7 +395,7 @@ export const ToolSchemas = Object.freeze({
     mission_id: z.string(),
     title: z.string().optional(),
     goal: z.string().optional(),
-    status: z.string().optional(),
+    status: z.enum([MissionStatus.ACTIVE, MissionStatus.ARCHIVED]).optional(),
     priority: z.string().optional(),
     owner: z.string().optional(),
     workspace_refs: z.array(z.string()).optional(),
@@ -466,7 +466,7 @@ export const ToolSchemas = Object.freeze({
     plan_id: z.string().optional(),
     run_id: z.string().optional(),
     kind: z.string().optional(),
-    status: z.string().optional(),
+    status: z.enum(taskStateValues).optional(),
     assignee: z.string().optional(),
     checkpoint_ref: z.string().optional(),
     retry_count: z.number().optional(),
@@ -475,7 +475,7 @@ export const ToolSchemas = Object.freeze({
   }),
   taskTransition: z.object({
     task_id: z.string(),
-    status: z.string().optional(),
+    status: z.enum(taskStateValues).optional(),
     checkpoint_ref: z.string().optional(),
     retry_count: z.number().optional(),
     blocking_reason: z.string().optional()
@@ -494,7 +494,7 @@ export const ToolSchemas = Object.freeze({
     assignee: z.string().optional(),
     capabilities_used: z.array(z.string()).optional(),
     budget: looseRecord.optional(),
-    a2a_agent_card_url: z.string().optional(),
+    a2a_agent_card_url: z.string().url().optional(),
     a2a_message: z.string().optional(),
     remote_task_id: z.string().optional(),
     remote_context_id: z.string().optional()

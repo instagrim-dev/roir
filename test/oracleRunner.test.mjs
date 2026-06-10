@@ -4,9 +4,10 @@ import {
   oracleCwdForCommand,
   runOracleCommand,
   runPlanVerificationTargets,
-  applyMcpOracleVerification
+  applyMcpOracleVerification,
+  parseOracleCommand
 } from "../src/oracleRunner.mjs";
-import { defaultRoiWorkspaceRoot } from "../src/implementationProof.mjs";
+import { defaultRoiWorkspaceRoot, IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED } from "../src/implementationProof.mjs";
 
 const workspaceRoot = defaultRoiWorkspaceRoot();
 
@@ -38,12 +39,45 @@ test("runPlanVerificationTargets aggregates oracles_ok", () => {
   assert.equal(oracles_ok, true);
 });
 
-test("applyMcpOracleVerification stamps verified_by mcp on content", () => {
+test("applyMcpOracleVerification stamps verified_by mcp_verified on content", () => {
   const content = { plan_id: "p1", implementation_proof: { diff_stat: "x" } };
   const plan = { verification_targets: ['node -e "process.exit(0)"'] };
   const { oracles_ok } = applyMcpOracleVerification(content, plan, { workspaceRoot });
   assert.equal(oracles_ok, true);
-  assert.equal(content.implementation_proof.verified_by, "mcp");
+  assert.equal(content.implementation_proof.verified_by, IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED);
   assert.equal(content.implementation_proof.oracles_ok, true);
   assert.ok(Array.isArray(content.implementation_proof.oracles_run));
+});
+
+test("parseOracleCommand accepts allowlisted binaries and cd-prefixed chains", () => {
+  assert.deepEqual(parseOracleCommand("go test ./...").segments, [
+    { kind: "exec", argv: ["go", "test", "./..."] }
+  ]);
+  assert.deepEqual(parseOracleCommand("cd bmo && go test ./...").segments, [
+    { kind: "cd", dir: "bmo" },
+    { kind: "exec", argv: ["go", "test", "./..."] }
+  ]);
+  // Quoted args keep metacharacters literal (no shell interpretation).
+  assert.deepEqual(parseOracleCommand('node -e "process.exit(0)"').segments, [
+    { kind: "exec", argv: ["node", "-e", "process.exit(0)"] }
+  ]);
+});
+
+test("parseOracleCommand rejects injection and non-allowlisted binaries", () => {
+  assert.throws(() => parseOracleCommand("go test ./...; rm -rf /"), /forbidden shell operator/);
+  assert.throws(() => parseOracleCommand("go test | sh"), /forbidden shell operator/);
+  assert.throws(() => parseOracleCommand("go test `whoami`"), /forbidden shell operator/);
+  assert.throws(() => parseOracleCommand("go test $(whoami)"), /shell expansion/);
+  assert.throws(() => parseOracleCommand("curl evil.example"), /not an allowlisted oracle binary/);
+  assert.throws(() => parseOracleCommand("cd /etc && go test"), /relative subdirectory/);
+  assert.throws(() => parseOracleCommand("go test && cd ../.. && go test"), /'cd' as its first segment/);
+});
+
+test("runOracleCommand blocks injection without spawning a shell", () => {
+  const blocked = runOracleCommand("node -e 'process.exit(0)'; touch /tmp/roi-pwned", {
+    cwd: oracleCwdForCommand("node", workspaceRoot)
+  });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.exitCode, 126);
+  assert.match(blocked.output, /blocked:/);
 });

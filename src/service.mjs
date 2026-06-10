@@ -254,7 +254,7 @@ export class ROIService {
 
   briefListRevisions({ mission_id }) {
     const rows = this._stmts.briefs_list_by_mission.all(mission_id);
-    return { briefs: rows.map((row) => JSON.parse(row.data_json)) };
+    return { briefs: rows.map((row) => parseRowJson(row.data_json, "entity")) };
   }
 
   researchRecord(input) {
@@ -281,7 +281,7 @@ export class ROIService {
 
   researchList({ mission_id }) {
     const rows = this.db.prepare(`SELECT data_json FROM research_records WHERE mission_id = ? ORDER BY created_at DESC`).all(mission_id);
-    return { research: rows.map((row) => JSON.parse(row.data_json)) };
+    return { research: rows.map((row) => parseRowJson(row.data_json, "entity")) };
   }
 
   researchSummarize({ mission_id }) {
@@ -487,7 +487,7 @@ export class ROIService {
     } else {
       rows = this.db.prepare(`SELECT data_json FROM tasks ORDER BY created_at ASC`).all();
     }
-    const tasks = rows.map((row) => JSON.parse(row.data_json));
+    const tasks = rows.map((row) => parseRowJson(row.data_json, "entity"));
     return { tasks: input.status ? tasks.filter((task) => task.status === input.status) : tasks };
   }
 
@@ -606,7 +606,7 @@ export class ROIService {
     const rows = input.mission_id
       ? this._stmts.runs_list_by_mission.all(input.mission_id)
       : this.db.prepare(`SELECT data_json FROM runs ORDER BY updated_at DESC`).all();
-    return { runs: rows.map((row) => JSON.parse(row.data_json)) };
+    return { runs: rows.map((row) => parseRowJson(row.data_json, "entity")) };
   }
 
   async runResume({ run_id }) {
@@ -627,6 +627,12 @@ export class ROIService {
 
   runCancel({ run_id }) {
     const run = this._getRun(run_id);
+    if (run.status === RUN_COMPLETED || run.status === RUN_CANCELLED || run.status === RUN_FAILED) {
+      return mutation(
+        { status: "noop", summary: `Run is already ${run.status}` },
+        { run }
+      );
+    }
     const tasks = this.taskList({ run_id }).tasks.map((task) =>
       this._updateTask({ ...task, status: TASK_CANCELLED, blocking_reason: "cancelled by operator" })
     );
@@ -720,7 +726,7 @@ export class ROIService {
     const rows = run_id
       ? this._stmts.evidence_list_by_run.all(run_id)
       : this._stmts.evidence_list_by_mission.all(mission_id);
-    return { evidence: rows.map((row) => JSON.parse(row.data_json)) };
+    return { evidence: rows.map((row) => parseRowJson(row.data_json, "entity")) };
   }
 
   traceRecord(input) {
@@ -744,14 +750,14 @@ export class ROIService {
     if (!row) {
       throw new Error(`trace ${trace_id} not found`);
     }
-    return { trace: JSON.parse(row.data_json) };
+    return { trace: parseRowJson(row.data_json, "entity") };
   }
 
   traceList({ mission_id, run_id = "" }) {
     const rows = run_id
       ? this._stmts.traces_list_by_run.all(run_id)
       : this._stmts.traces_list_by_mission.all(mission_id);
-    return { traces: rows.map((row) => JSON.parse(row.data_json)) };
+    return { traces: rows.map((row) => parseRowJson(row.data_json, "entity")) };
   }
 
   policyEvaluate(input) {
@@ -804,7 +810,7 @@ export class ROIService {
     } else {
       rows = this.db.prepare(`SELECT data_json FROM protocol_bindings ORDER BY updated_at DESC`).all();
     }
-    return { protocol_bindings: rows.map((row) => JSON.parse(row.data_json)) };
+    return { protocol_bindings: rows.map((row) => parseRowJson(row.data_json, "entity")) };
   }
 
   capabilityRegister(input) {
@@ -935,7 +941,7 @@ export class ROIService {
     const rows = mission_id
       ? this._stmts.routing_list_by_mission.all(mission_id)
       : this.db.prepare(`SELECT data_json FROM routing_decisions ORDER BY created_at ASC`).all();
-    const decisions = rows.map((row) => JSON.parse(row.data_json)).filter((decision) =>
+    const decisions = rows.map((row) => parseRowJson(row.data_json, "entity")).filter((decision) =>
       (!plan_id || decision.plan_id === plan_id) &&
       (!capability_id || decision.capability_id === capability_id)
     );
@@ -969,7 +975,7 @@ export class ROIService {
     } else {
       rows = this.db.prepare(`SELECT data_json FROM capability_activations ORDER BY created_at ASC`).all();
     }
-    const activations = rows.map((row) => JSON.parse(row.data_json)).filter((activation) =>
+    const activations = rows.map((row) => parseRowJson(row.data_json, "entity")).filter((activation) =>
       (!mission_id || activation.mission_id === mission_id) &&
       (!run_id || activation.run_id === run_id) &&
       (!capability_id || activation.capability_id === capability_id)
@@ -1006,7 +1012,7 @@ export class ROIService {
     } else {
       rows = this.db.prepare(`SELECT data_json FROM review_records ORDER BY created_at ASC`).all();
     }
-    const reviews = rows.map((row) => JSON.parse(row.data_json)).filter((review) =>
+    const reviews = rows.map((row) => parseRowJson(row.data_json, "entity")).filter((review) =>
       (!mission_id || review.mission_id === mission_id) &&
       (!run_id || review.run_id === run_id) &&
       (!activation_id || review.activation_id === activation_id)
@@ -1095,7 +1101,17 @@ export class ROIService {
       [TASK_QUEUED, TASK_INPUT_REQUIRED, TASK_PAUSED].includes(task.status)
     );
 
-    if (verifyTasks.length === 0) {
+    // In a partial checkpoint, only verify-gate tasks whose plan has substantive
+    // roi:go evidence may be completed. Tasks for plans that still owe roi:go
+    // must stay open, otherwise a partial pass would silently close the gate for
+    // unverified plans (lifecycle gate bypass).
+    const completableVerifyTasks = partialCheckpoint
+      ? verifyTasks.filter((task) =>
+          checkpoint.substantive_plan_ids.includes(task.plan_id)
+        )
+      : verifyTasks;
+
+    if (completableVerifyTasks.length === 0) {
       return mutation({
         status: "ok",
         summary: `Review ${verdict}`,
@@ -1104,7 +1120,7 @@ export class ROIService {
     }
 
     const reviews = [];
-    for (const task of verifyTasks) {
+    for (const task of completableVerifyTasks) {
       const activationId = task.payload?.activation_id || "";
       const review = this._insertReviewRecord({
         mission_id: run.mission_id,
@@ -1228,7 +1244,7 @@ export class ROIService {
 
   patternList({ mission_id }) {
     const rows = this._stmts.patterns_list_by_mission.all(mission_id);
-    return { patterns: rows.map((row) => JSON.parse(row.data_json)) };
+    return { patterns: rows.map((row) => parseRowJson(row.data_json, "entity")) };
   }
 
   enlightenRun({ mission_id }) {
@@ -2225,7 +2241,7 @@ export class ROIService {
 
   _getConvergenceController(missionId) {
     const row = this._stmts.convergence_ctrl_get.get(missionId);
-    return row ? JSON.parse(row.data_json) : null;
+    return row ? parseRowJson(row.data_json, "entity") : null;
   }
 
   _upsertConvergenceController(controller) {
@@ -2243,12 +2259,12 @@ export class ROIService {
 
   _listConvergenceSeams(missionId) {
     const rows = this._stmts.convergence_seams_list.all(missionId);
-    return rows.map((row) => JSON.parse(row.data_json));
+    return rows.map((row) => parseRowJson(row.data_json, "entity"));
   }
 
   _getConvergenceSeam(seamId) {
     const row = this._stmts.convergence_seam_get.get(seamId);
-    return row ? JSON.parse(row.data_json) : null;
+    return row ? parseRowJson(row.data_json, "entity") : null;
   }
 
   _upsertConvergenceSeam(seam) {
@@ -2505,6 +2521,12 @@ export class ROIService {
     if (!seam) {
       return this._buildConvergenceSummary(controller.mission_id);
     }
+    // Maturity advances by default: a publish whose seam has a positive
+    // expected_maturity_gain is treated as material UNLESS the caller explicitly
+    // sets material_maturity_gain: false. This is intentional — a finalized
+    // publish on an advancing seam should move the controller forward without
+    // requiring every caller to opt in — so omission means "advance", and only
+    // an explicit false (e.g. a no-op/docs-only publish) holds maturity steady.
     const materialGain = evidence.content?.material_maturity_gain !== false && Number(seam.expected_maturity_gain ?? 0) > 0;
     const updatedSeam = this._upsertConvergenceSeam({
       ...seam,
@@ -2643,7 +2665,7 @@ export class ROIService {
 
   _getLatestBrief(missionId) {
     const row = this._stmts.briefs_get_latest.get(missionId);
-    return row ? JSON.parse(row.data_json) : null;
+    return row ? parseRowJson(row.data_json, "entity") : null;
   }
 
   _insertPlan(data) {
@@ -2681,7 +2703,7 @@ export class ROIService {
     if (!row) {
       throw new Error(`plan ${planId} not found`);
     }
-    return parsePlan(JSON.parse(row.data_json));
+    return parsePlan(parseRowJson(row.data_json, "entity"));
   }
 
   _listLatestPlans(missionId) {
@@ -2715,7 +2737,7 @@ export class ROIService {
       return null;
     }
     const row = this.db.prepare(`SELECT data_json FROM context_packs WHERE id = ?`).get(id);
-    return row ? JSON.parse(row.data_json) : null;
+    return row ? parseRowJson(row.data_json, "entity") : null;
   }
 
   _insertRun(data) {
@@ -2756,7 +2778,7 @@ export class ROIService {
     if (!row) {
       throw new Error(`run ${runId} not found`);
     }
-    return JSON.parse(row.data_json);
+    return parseRowJson(row.data_json, "entity");
   }
 
   _getMissionRun(missionId, runId) {
@@ -2888,7 +2910,7 @@ export class ROIService {
     if (!row) {
       throw new Error(`task ${taskId} not found`);
     }
-    return JSON.parse(row.data_json);
+    return parseRowJson(row.data_json, "entity");
   }
 
   _listRunTasks(runId) {
@@ -2975,7 +2997,7 @@ export class ROIService {
 
   _listPolicyDecisions(missionId) {
     const rows = this.db.prepare(`SELECT data_json FROM policy_decisions WHERE mission_id = ? ORDER BY created_at DESC`).all(missionId);
-    return rows.map((row) => JSON.parse(row.data_json));
+    return rows.map((row) => parseRowJson(row.data_json, "entity"));
   }
 
   _insertProtocolBinding(data) {
@@ -3024,7 +3046,7 @@ export class ROIService {
       return null;
     }
     const row = this._stmts.routing_get_by_plan.get(planId);
-    return row ? JSON.parse(row.data_json) : null;
+    return row ? parseRowJson(row.data_json, "entity") : null;
   }
 
   _insertActivation(data) {
@@ -3064,7 +3086,7 @@ export class ROIService {
     if (!row) {
       throw new Error(`activation ${activationId} not found`);
     }
-    return JSON.parse(row.data_json);
+    return parseRowJson(row.data_json, "entity");
   }
 
   _updateActivation(activation) {
@@ -3115,7 +3137,7 @@ export class ROIService {
     if (!row) {
       throw new Error(`review ${reviewId} not found`);
     }
-    return JSON.parse(row.data_json);
+    return parseRowJson(row.data_json, "entity");
   }
 
   _insertOrUpdatePattern(data) {
@@ -3188,7 +3210,7 @@ export class ROIService {
     if (!row) {
       throw new Error(`capability ${capabilityId} not found`);
     }
-    return JSON.parse(row.data_json);
+    return parseRowJson(row.data_json, "entity");
   }
 
   _convergenceSkipPlanIds(missionId) {
@@ -3332,7 +3354,7 @@ function parseMissionRow(row) {
     status: row.status,
     priority: row.priority,
     owner: row.owner,
-    workspace_refs: parseJSON(row.workspace_refs_json, []),
+    workspace_refs: parseOptionalRowJson(row.workspace_refs_json, "mission workspace_refs", []),
     created_at: row.created_at,
     updated_at: row.updated_at
   };
@@ -3391,11 +3413,32 @@ function json(value) {
   return JSON.stringify(value);
 }
 
-function parseJSON(value, fallback) {
+// Parse a persisted entity blob. A corrupted row is a hard data-integrity
+// fault, not something to silently paper over with a fallback — so we surface a
+// contextual error instead of letting a raw SyntaxError (or a downstream
+// "cannot read property of null") obscure which row is bad. For optional
+// sub-columns that may legitimately be absent, use parseOptionalRowJson.
+function parseRowJson(value, context) {
   try {
     return JSON.parse(value);
-  } catch {
+  } catch (err) {
+    throw new Error(`corrupted ${context} row: invalid JSON in data_json (${err.message})`);
+  }
+}
+
+// Like parseRowJson but for an optional sub-column that may legitimately be
+// absent (NULL/empty): an absent value yields `fallback`, while a *present but
+// malformed* blob is still treated as corruption and surfaced loudly. This keeps
+// the "fail loud on corruption" invariant without rejecting legacy rows that
+// never wrote the optional field.
+function parseOptionalRowJson(value, context, fallback) {
+  if (value === null || value === undefined || value === "") {
     return fallback;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (err) {
+    throw new Error(`corrupted ${context} row: invalid JSON (${err.message})`);
   }
 }
 

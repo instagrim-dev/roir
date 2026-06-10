@@ -155,3 +155,20 @@ test("lifecycle helper surfaces service-thrown errors on stderr", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("lifecycle helper validates args against ToolSchemas before dispatch", () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-helper-contract-val-"));
+  try {
+    const dbPath = path.join(tmpDir, "val.sqlite");
+    // mission_id must be a string; a number is a contract violation that should
+    // be rejected at the dispatch boundary, not coerced into business logic.
+    const result = runHelper(["mission_get", JSON.stringify({ mission_id: 123 })], {
+      env: { ROI_SQLITE_PATH: dbPath },
+    });
+    assert.equal(result.status, 1, "type-invalid args must be rejected");
+    assert.match(result.stderr, /invalid arguments/);
+    assert.match(result.stderr, /mission_id/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

@@ -134,6 +134,28 @@ test("validatePathsTouchedOnDisk requires product-tree prefix", () => {
   assert.equal(inferProductTreeKey({ verification_targets: ["cd bmo && go test"] }), "bmo");
 });
 
+test("validatePathsTouchedOnDisk rejects `..` traversal behind a valid prefix", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-paths-esc-"));
+  try {
+    // Create a real file OUTSIDE the workspace root that the escape would reach,
+    // so the existence oracle would otherwise succeed and leak the escape.
+    const outside = path.join(dir, "secret.txt");
+    fs.writeFileSync(outside, "top secret");
+    const root = path.join(dir, "workspace");
+    fs.mkdirSync(path.join(root, "roi"), { recursive: true });
+    assert.throws(
+      () =>
+        validatePathsTouchedOnDisk(
+          { paths_touched: ["roi/../../secret.txt"] },
+          { workspaceRoot: root, plan: { actions: [], verification_targets: [] } }
+        ),
+      /escapes the workspace root/
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("pathAppearsInPorcelain matches porcelain lines", () => {
   const lines = [" M bmo/go.mod", "?? roi/foo.mjs"];
   assert.equal(pathAppearsInPorcelain("bmo/go.mod", lines), true);

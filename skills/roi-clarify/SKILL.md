@@ -163,6 +163,48 @@ runs against an unstable target, the operator gets paged at execute time,
 and the mission's invariant is satisfied only by definition, not by
 substance.
 
+## Abstraction restraint
+
+A brief that proposes a **new abstraction layer** — a new helper, type,
+package, indirection, framework, coordinator, manager, registry, or
+"clean boundary" the codebase did not previously contain — must treat
+that abstraction as an **assumption to be falsified**, not as a load-bearing
+constraint or non_goal. Models are persuasive about new structure: the
+common failure is a brief that reads "introduce a `pkg/foo` coordinator
+to centralize X" and then a plan that builds the coordinator before the
+operator has confirmed an existing seam can't carry X. This is the
+brief-time half of the **Abstraction restraint** doctrine; see
+[`references/agentic-plan-strength.md`](../references/agentic-plan-strength.md)
+"Abstraction restraint" for the rubric scoring and `roi:outline` for the
+plan-time challenge.
+
+Rules:
+
+1. **Survey before proposing.** A brief that proposes new structure must
+   name **the existing seam considered first** and one sentence per
+   reason that seam can't carry the work. "Considered: extending
+   `internal/agent.Coordinator` directly. Rejected because: it owns the
+   message loop and adding routing logic would couple two concerns" is
+   acceptable. "Need a new coordinator to keep things clean" is not.
+2. **Record new structure as `assumptions`, not `constraints`.** An
+   `assumption` is something the plan must validate; a `constraint` is
+   something the plan must obey. "We will add `internal/foo/`" is an
+   assumption until evidence shows the existing seams can't carry the
+   responsibility. Use `assumptions` so `roi:outline` knows it must
+   produce a verification target that falsifies (or confirms) the
+   abstraction.
+3. **Falsifiable architectural invariant, not aesthetic invariant.** "The
+   codebase should have clean boundaries" is not a falsifiable invariant.
+   "No package outside `internal/agent/**` may import `internal/agent/internal/`"
+   is. If the only justification for the new layer is aesthetic, the
+   abstraction is speculative and the brief should defer it.
+
+**Failure mode this prevents:** the brief frames a speculative
+abstraction as settled scope, the plan inherits that framing as a fact,
+and `roi:go` builds the layer before anyone tested whether the existing
+codebase needed it. Once `internal/foo/coordinator.go` exists, removing
+it costs roughly an order of magnitude more than refusing it would have.
+
 ## What this skill does NOT do
 
 - Does not call `mission_update` (title/goal changes go via that verb directly).

@@ -17,7 +17,7 @@ import {
   VerifyVerdict
 } from "../src/contracts.mjs";
 import { openDatabase } from "../src/db.mjs";
-import { isHostImplementHandoffOutput, isLocalImplementStubOutput } from "../src/implementationProof.mjs";
+import { isHostImplementHandoffOutput, isLocalImplementStubOutput, IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED } from "../src/implementationProof.mjs";
 import { ROIService } from "../src/service.mjs";
 
 const routingFixturePath = new URL("../fixtures/routing-evals.json", import.meta.url);
@@ -920,6 +920,22 @@ test("ROI executes a real bounded A2A delegation using the SDK client", async (t
   assert.equal(verified.run.status, RunStatus.COMPLETED);
 });
 
+test("ROI runCancel is a no-op on a terminal run and does not rewrite status", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  const run = (await service.runCreate({ mission_id: mission.id, mode: "agent" })).run;
+
+  const cancelled = service.runCancel({ run_id: run.id });
+  assert.equal(cancelled.status, "ok");
+  assert.equal(cancelled.run.status, RunStatus.CANCELLED);
+
+  // A second cancel (or cancel of any already-terminal run) must not mutate it.
+  const again = service.runCancel({ run_id: run.id });
+  assert.equal(again.status, "noop");
+  assert.match(again.summary, /already cancelled/);
+  assert.equal(service.runGet({ run_id: run.id }).run.status, RunStatus.CANCELLED);
+});
+
 function createHarness(t) {
   const dir = createTempDir(t);
   const db = openDatabase(path.join(dir, "roi.sqlite"));
@@ -1544,7 +1560,7 @@ test("ROI run_oracles stamps mcp_verified when targets pass", (t) => {
     }
   });
   const proof = recorded.evidence.content.implementation_proof;
-  assert.equal(proof.verified_by, "mcp");
+  assert.equal(proof.verified_by, IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED);
   assert.equal(proof.oracles_ok, true);
   assert.ok(proof.oracles_run.every((row) => row.ok === true));
   const { summary } = service.statusGet({ mission_id: mission.id });
@@ -1721,7 +1737,7 @@ test("ROI verifyEvaluate run_oracles stamps verify_gate on pass", async (t) => {
     (item) => item.source === "verify.evaluate" && item.type === "verification"
   );
   assert.ok(gateEvidence);
-  assert.equal(gateEvidence.content.verify_gate.verified_by, "mcp");
+  assert.equal(gateEvidence.content.verify_gate.verified_by, IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED);
   assert.equal(gateEvidence.content.verify_gate.oracles_ok, true);
   assert.ok(gateEvidence.content.verify_gate.oracles_run.every((row) => row.ok === true));
 });
@@ -1799,6 +1815,51 @@ test("ROI verifyEvaluate allow_partial checkpoint pass when one plan substantive
   assert.equal(gateEvidence.content.verify_gate.partial_mission, true);
   assert.ok(gateEvidence.content.verify_gate.open_count >= 1);
   assert.ok(gateEvidence.content.verify_gate.substantive_count >= 1);
+});
+
+test("ROI verifyEvaluate partial pass leaves non-substantive plan verify task open", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  service.planGenerate({
+    mission_id: mission.id,
+    plans: [
+      { name: "Plan A", actions: ["implement a"], verification_targets: ['node -e "process.exit(0)"'] },
+      { name: "Plan B", actions: ["implement b"], verification_targets: ['node -e "process.exit(0)"'] }
+    ]
+  });
+  const plans = service.planList({ mission_id: mission.id }).plans;
+  const runResult = await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: plans.map((plan) => plan.id),
+    mode: "local",
+    prompt: "stub"
+  });
+  // Only Plan A gets substantive roi:go evidence.
+  recordSubstantiveRoiGo(service, mission.id, plans[0]);
+
+  service.verifyEvaluate({
+    run_id: runResult.run.id,
+    verdict: VerifyVerdict.PASS,
+    allow_partial_verification: true,
+    notes: "wave 1 checkpoint"
+  });
+
+  const tasks = service.taskList({ run_id: runResult.run.id }).tasks;
+  const verifyTaskFor = (planId) =>
+    tasks.find(
+      (task) => task.payload?.stage_kind === StageKind.VERIFY_GATE && task.plan_id === planId
+    );
+  const planAVerify = verifyTaskFor(plans[0].id);
+  const planBVerify = verifyTaskFor(plans[1].id);
+
+  // Plan A (substantive) may complete; Plan B (still owes roi:go) must NOT be
+  // closed by the partial pass — otherwise its verify gate is bypassed.
+  assert.equal(planAVerify.status, TaskStatus.COMPLETED);
+  assert.notEqual(
+    planBVerify.status,
+    TaskStatus.COMPLETED,
+    "non-substantive plan's verify gate must remain open after a partial pass"
+  );
 });
 
 test("ROI verifyEvaluate allow_partial rejects verdict partial", async (t) => {
