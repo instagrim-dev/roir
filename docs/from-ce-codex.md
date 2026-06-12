@@ -7,7 +7,7 @@
 
 ## Setup (2 steps)
 
-**1. Install dependencies** from the `roi/` directory:
+**1. Install dependencies** from the ROI package root (`roi/` checkout or unpacked `package/` directory):
 
 ```bash
 pnpm install
@@ -17,7 +17,7 @@ pnpm install
 etc. appear in the Codex skill picker (same mechanism as `$ce-brainstorm`):
 
 ```bash
-roi/scripts/install-agent-skills.sh codex
+scripts/install-agent-skills.sh codex
 ```
 
 This creates `~/.local/share/roi/plugins/roi/` and registers it in

@@ -2,10 +2,26 @@
 
 ## 0.1.0
 
-ROI v0.1 ships as a **skill-driven, local-first** package. Each `roi:*`
-command opens a `SKILL.md` under `skills/` and shells to
-`node scripts/lifecycle.mjs <verb>` to persist state in local SQLite. There
-is **no MCP server, daemon, or long-running process**.
+Initial ROI release as a **skill-driven, local-first** package.
+
+Each `roi:*` command opens a `SKILL.md` under `skills/` and shells to
+`node scripts/lifecycle.mjs <verb>` to persist durable state in local
+SQLite. There is **no MCP server, daemon, or long-running process** in
+the shipped runtime.
+
+### Highlights
+
+- ship the full ROI command surface from `roi:start` / `roi:work`
+  through `roi:inspect`, with `roi:go` (implementation) and `roi:drive`
+  (lifecycle orchestration) as the primary operator entry points
+- pin the lifecycle helper (`scripts/lifecycle.mjs`) as the single
+  persistence path and expose its 52-verb snake_case registry as the
+  canonical wire contract
+- support private tarball handoff with package-root-safe proof handling,
+  bundled Cursor vocabulary rules, and extracted-package release smoke in
+  `pnpm run release:check`
+- document and ship host integration for Codex, Claude Code, Cursor, and
+  GitHub Copilot CLI without requiring a dedicated ROI backend process
 
 ### Runtime
 
@@ -17,8 +33,8 @@ is **no MCP server, daemon, or long-running process**.
   registry (52 snake_case verbs, e.g. `mission_create`, `plan_generate`,
   `evidence_record`, `verify_evaluate`)
 - local SQLite system of record; `ROI_SQLITE_PATH` selects the file
-  (default `.data/roi.sqlite` under `roi/`), with WAL handling concurrent
-  helper invocations
+  (default `.data/roi.sqlite` under the active ROI package root), with
+  WAL handling concurrent helper invocations
 - review-gated workflow template (`implement` → `spec_review` →
   `quality_review` → `verify_gate`); `roi:drive` pauses at the verify and
   publish gates for operator-owned judgments
@@ -40,7 +56,8 @@ is **no MCP server, daemon, or long-running process**.
 - `pnpm test` — `node --test` suite
 - `pnpm run smoke:integration` — end-to-end lifecycle + SQLite subprocess
   smoke (`scripts/integration-smoke.mjs`)
-- `pnpm run release:check` — release gate
+- `pnpm run release:check` — release gate, including extracted-package
+  install + smoke verification
 - `pnpm run sync:lifecycle-verbs` — keeps `fixtures/lifecycle-verbs.json`
   in sync with the helper's verb registry
 - `pnpm run materialize:ce` — materializes a CE plan bundle into ROI
@@ -51,6 +68,7 @@ is **no MCP server, daemon, or long-running process**.
 - quickstart, installation, multi-runtime (Codex Tier 1, Claude Code,
   Cursor, Copilot CLI, generic MCP host), architecture, state-and-artifacts,
   command-reference, limitations, troubleshooting, and FAQ docs
+- CE migration guides for Codex, Claude Code, and Copilot CLI
 - OSS hygiene: `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`
 - private local-first distribution via a `roi-plugin-*.tgz` handoff tarball
   (no remote registry); see [`docs/release-validation.md`](docs/release-validation.md)

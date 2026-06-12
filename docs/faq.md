@@ -31,7 +31,7 @@ Cursor rule), not by speaking MCP to a long-running ROI process.
 
 ## Where does state live?
 
-By default, in `roi/.data/roi.sqlite`.
+By default, in `.data/roi.sqlite` under the active ROI package root.
 
 ## Why does `roi:draft` pause instead of just finishing?
 

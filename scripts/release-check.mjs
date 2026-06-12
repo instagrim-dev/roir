@@ -29,6 +29,7 @@ const requiredPackagePaths = [
   { label: "runtime source", prefix: "package/src/" },
   { label: "skills", prefix: "package/skills/" },
   { label: "agents", prefix: "package/agents/" },
+  { label: "cursor vocabulary rule", exact: "package/.cursor/rules/roi-commands.mdc" },
   { label: "hooks", prefix: "package/hooks/" },
   { label: "docs", prefix: "package/docs/" },
   { label: "fixtures", prefix: "package/fixtures/" },
@@ -149,9 +150,11 @@ function inspectPackage() {
       throw new Error(`package archive not found: ${archivePath}`);
     }
 
+    run("Extract package tarball", "tar", ["-xzf", archivePath, "-C", tmpDir]);
     const listing = capture("Inspect package tarball", "tar", ["-tzf", archivePath])
       .split(/\r?\n/)
       .filter(Boolean);
+    const unpackedPackageDir = path.join(tmpDir, "package");
 
     const forbiddenHits = forbiddenPackagePaths.flatMap((rule) =>
       listing.filter((entry) => matches(entry, rule)).map((entry) => ({ rule, entry }))
@@ -177,6 +180,13 @@ function inspectPackage() {
     console.log(
       `package ok: ${listing.length} entries, ${(stats.size / 1024).toFixed(1)} KiB, ${archivePath}`
     );
+
+    run("Install extracted package dependencies", "pnpm", ["install", "--frozen-lockfile"], {
+      cwd: unpackedPackageDir,
+    });
+    run("Smoke extracted package", "pnpm", ["run", "smoke:integration"], {
+      cwd: unpackedPackageDir,
+    });
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

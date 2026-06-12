@@ -6,7 +6,7 @@
  *   node scripts/materialize-ce-bundle.mjs --bundle ../fixtures/ce-plan-bundle.example.json --mission-id <uuid>
  *   node scripts/materialize-ce-bundle.mjs -b path/to/bundle.json -m <mission_id> [--plan-id <id>] [--dry-run]
  *
- * Uses the same ROI SQLite as the lifecycle helper (ROI_SQLITE_PATH or roi/.data/roi.sqlite).
+ * Uses the same ROI SQLite as the lifecycle helper (ROI_SQLITE_PATH or .data/roi.sqlite under the ROI package root).
  */
 import fs from "node:fs";
 import path from "node:path";

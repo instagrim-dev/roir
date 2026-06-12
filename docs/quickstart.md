@@ -49,7 +49,7 @@ ROI is skill-driven. Each host integrates by registering the ROI skill
 plugin (or, for Cursor, a vocabulary rule); skills shell to
 `scripts/lifecycle.mjs` per command. There is no MCP server to start.
 
-- Cursor: open the workspace that ships `.cursor/rules/roi-commands.mdc`.
+- Cursor: open the ROI package root that ships `.cursor/rules/roi-commands.mdc`.
 - Codex: install the ROI skill plugin (`scripts/install-agent-skills.sh codex`).
 - GitHub Copilot CLI: install the ROI skill plugin
   (`scripts/install-agent-skills.sh copilot`).
@@ -68,7 +68,7 @@ node scripts/lifecycle.mjs mission_list '{}'
 By default, ROI persists data in:
 
 ```text
-roi/.data/roi.sqlite
+.data/roi.sqlite
 ```
 
 The database file is created on first use. Set `ROI_SQLITE_PATH` for

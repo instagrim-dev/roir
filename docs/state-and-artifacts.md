@@ -7,7 +7,7 @@ ROI is built around durable artifacts instead of transcript-only state.
 By default, ROI stores its SQLite database here:
 
 ```text
-roi/.data/roi.sqlite
+.data/roi.sqlite
 ```
 
 The database is created automatically by the server on first access.

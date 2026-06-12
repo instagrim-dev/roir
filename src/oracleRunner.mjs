@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import {
   defaultRoiWorkspaceRoot,
+  resolveRoiPackageRoot,
   IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED
 } from "./implementationProof.mjs";
 
@@ -166,7 +167,7 @@ export function parseOracleCommand(command) {
 }
 
 export function roiPackageRoot(workspaceRoot = defaultRoiWorkspaceRoot()) {
-  return path.join(workspaceRoot, "roi");
+  return resolveRoiPackageRoot(workspaceRoot);
 }
 
 export function oracleCwdForCommand(cmd, workspaceRoot = defaultRoiWorkspaceRoot()) {

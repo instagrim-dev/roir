@@ -2,8 +2,8 @@
 /**
  * Integration smoke harness for the ROI lifecycle helper.
  *
- * The canonical interface for ROI is the skill files under `roi/skills/`.
- * Skills shell to `node roi/scripts/lifecycle.mjs <verb>` to persist state.
+ * The canonical interface for ROI is the skill files under `skills/`.
+ * Skills shell to `node scripts/lifecycle.mjs <verb>` to persist state.
  * This smoke drives the helper as a subprocess (the same way skills do) so
  * the test mirrors real usage rather than importing service.mjs directly.
  *
@@ -15,13 +15,17 @@
  *   Phase 3 — `mission_create` → `status_get` round-trip: schema is live,
  *             SQLite persistence is healthy, status routing returns a
  *             populated object with `next_actions`.
- *   Phase 4 — Error paths: unknown verb exits 1 with a helpful message;
+ *   Phase 4 — helper-verified package proof: `run_oracles: true` plus
+ *             logical `roi/...` `paths_touched` succeeds from the active
+ *             ROI package root.
+ *   Phase 5 — Error paths: unknown verb exits 1 with a helpful message;
  *             malformed JSON exits 1; service-thrown error (e.g. missing
  *             required arg) exits 1 with a `lifecycle: <verb> failed:`
  *             stderr line.
  *
  * Exit 0 on success, 1 on any failure. Never touches the real
- * `roi/.data/roi.sqlite` — uses a temp SQLite path via ROI_SQLITE_PATH.
+ * `.data/roi.sqlite` under the active ROI package root — uses a temp SQLite
+ * path via ROI_SQLITE_PATH.
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -194,8 +198,65 @@ try {
     }
   }
 
-  // ── Phase 4: error paths ──────────────────────────────────────────────────
-  step("Phase 4: error paths");
+  // ── Phase 4: helper-verified package proof ────────────────────────────────
+  step("Phase 4: helper-verified package proof");
+  if (createdMissionId) {
+    const planArgs = JSON.stringify({
+      mission_id: createdMissionId,
+      plans: [
+        {
+          title: "packaged-proof",
+          summary: "Exercise run_oracles against the active ROI package root",
+          plan: {
+            actions: ["Record helper-verified proof"],
+            verification_targets: [
+              'node -e "process.exit(require(\'fs\').existsSync(\'package.json\') ? 0 : 1)"'
+            ]
+          }
+        }
+      ]
+    });
+    const planResp = await runHelper(["plan_generate", planArgs]);
+    if (planResp.code !== 0) {
+      fail(`plan_generate exited ${planResp.code}; stderr: ${planResp.stderr}`);
+    } else {
+      const planData = parseJson(planResp.stdout, "plan_generate");
+      const planId = planData?.plans?.[0]?.id;
+      if (!planId) {
+        fail(`plan_generate response missing first plan id: ${planResp.stdout}`);
+      } else {
+        const evidenceArgs = JSON.stringify({
+          mission_id: createdMissionId,
+          type: "verification",
+          source: "roi:go",
+          result: "pass",
+          run_oracles: true,
+          content: {
+            plan_id: planId,
+            implementation_proof: {
+              diff_stat: "roi/package.json | 0",
+              paths_touched: ["roi/package.json"]
+            }
+          }
+        });
+        const evidenceResp = await runHelper(["evidence_record", evidenceArgs]);
+        if (evidenceResp.code !== 0) {
+          fail(`evidence_record(run_oracles) exited ${evidenceResp.code}; stderr: ${evidenceResp.stderr}`);
+        } else {
+          const evidenceData = parseJson(evidenceResp.stdout, "evidence_record");
+          const proof = evidenceData?.evidence?.content?.implementation_proof;
+          if (proof?.oracles_ok !== true || proof?.verified_by !== "mcp_verified") {
+            fail(`evidence_record(run_oracles) missing helper-verified proof: ${evidenceResp.stdout}`);
+          } else {
+            console.log("  ✓ helper-verified roi/package.json proof succeeded from package root");
+          }
+        }
+      }
+    }
+  }
+
+  // ── Phase 5: error paths ──────────────────────────────────────────────────
+  step("Phase 5: error paths");
 
   // 4a. Unknown verb → exit 1 with helpful stderr.
   {
@@ -238,7 +299,7 @@ try {
   if (!process.exitCode) {
     console.log(
       `\n✓ ROI lifecycle integration smoke passed` +
-      ` (verbs listed, mission_list ok, round-trip ok, error paths ok)`
+      ` (verbs listed, mission_list ok, round-trip ok, packaged proof ok, error paths ok)`
     );
   } else {
     console.log("\n✗ ROI lifecycle integration smoke FAILED — see errors above");
