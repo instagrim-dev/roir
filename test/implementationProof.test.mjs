@@ -8,6 +8,9 @@ import {
   oracleRunRecordPresent,
   validatePathsTouchedOnDisk,
   defaultRoiWorkspaceRoot,
+  resolveRoiPackageRoot,
+  resolveProductTreeRoot,
+  porcelainPathForTouched,
   inferProductTreeKey,
   pathAppearsInPorcelain,
   runPlansHaveMcpVerifiedGoEvidence,
@@ -113,6 +116,28 @@ test("validatePathsTouchedOnDisk rejects missing paths under workspace root", ()
     assert.doesNotThrow(() =>
       validatePathsTouchedOnDisk(
         { paths_touched: ["roi/exists.txt"] },
+        { workspaceRoot: dir, plan: { actions: [], verification_targets: [] } }
+      )
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("resolve product-tree roots supports unpacked package layout", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-package-root-"));
+  try {
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "package.json"), "{}");
+    fs.writeFileSync(path.join(dir, "scripts", "lifecycle.mjs"), "// stub");
+    fs.writeFileSync(path.join(dir, "src", "service.mjs"), "// stub");
+    assert.equal(resolveRoiPackageRoot(dir), dir);
+    assert.equal(resolveProductTreeRoot("roi", dir), dir);
+    assert.equal(porcelainPathForTouched("roi/package.json", dir), "package.json");
+    assert.doesNotThrow(() =>
+      validatePathsTouchedOnDisk(
+        { paths_touched: ["roi/package.json"] },
         { workspaceRoot: dir, plan: { actions: [], verification_targets: [] } }
       )
     );

@@ -4,7 +4,7 @@
  *
  * Replaces the old `validate.mjs` which checked parity against
  * `src/server.mjs`. Now the canonical source of verb names is the
- * `VERBS` registry in `roi/scripts/lifecycle.mjs` (no MCP server).
+ * `VERBS` registry in `scripts/lifecycle.mjs` (no MCP server).
  *
  * Does not run the full test suite (use `pnpm test` in CI).
  */

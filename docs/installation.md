@@ -64,7 +64,8 @@ skills.
 
 ### SQLite location
 
-By default ROI writes `roi.sqlite` under `roi/.data/`. To use a
+By default ROI writes `roi.sqlite` under `.data/` in the active ROI
+package root. To use a
 different file (for example CI or an isolated experiment), set:
 
 ```bash
@@ -82,9 +83,9 @@ every Cursor agent session through `.cursor/rules/roi-commands.mdc`
 
 ### Recommended Cursor Flow
 
-1. Open the workspace that ships `.cursor/rules/roi-commands.mdc` (the
-   `agent-cli/` workspace, or a workspace that includes a copy of the
-   rule).
+1. Open the ROI package root that ships `.cursor/rules/roi-commands.mdc`
+   (either the checked-out `roi/` directory or the unpacked `package/`
+   directory).
 2. Confirm dependencies are installed under the ROI package root:
 
    ```bash
@@ -95,10 +96,10 @@ every Cursor agent session through `.cursor/rules/roi-commands.mdc`
    on a test mission. The agent should open `skills/roi-inspect/SKILL.md`
    and shell to `node scripts/lifecycle.mjs status_get '<args>'`.
 
-### Optional Cursor Skill Stubs
+### Optional Cursor Rule Install
 
-To install Cursor command stubs into `~/.cursor/commands/` (one stub
-per `roi:*` alias), run:
+To install the ROI command-vocabulary rule into `~/.cursor/rules/` for
+use outside this package root, run:
 
 ```bash
 scripts/install-agent-skills.sh cursor-user
@@ -197,7 +198,7 @@ rejects `authentication: "NONE"`.
 By default, ROI stores state here:
 
 ```text
-roi/.data/roi.sqlite
+.data/roi.sqlite
 ```
 
 This file is created automatically when the lifecycle helper first

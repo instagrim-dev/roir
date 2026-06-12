@@ -48,16 +48,15 @@ Common causes:
 ## Cursor Does Not Recognize ROI Commands
 
 Cursor has no skill picker; ROI command vocabulary is injected through
-`.cursor/rules/roi-commands.mdc` checked in at the workspace root.
+`.cursor/rules/roi-commands.mdc` shipped in the ROI package root.
 
 Check:
 
-- you opened the workspace that ships `.cursor/rules/roi-commands.mdc`
-  (the `agent-cli/` workspace, or an equivalent host that includes a
-  copy of the rule)
+- you opened the checked-out `roi/` root or unpacked `package/` root
+  that ships `.cursor/rules/roi-commands.mdc`
 - the agent session reloaded after the rule file changed (start a new
   conversation if needed)
-- to also install Cursor command stubs into `~/.cursor/commands/`, run
+- to also install the ROI rule into `~/.cursor/rules/`, run
   `scripts/install-agent-skills.sh cursor-user`
 
 ## Copilot CLI Does Not Show ROI Skills

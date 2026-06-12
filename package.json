@@ -6,6 +6,7 @@
   "private": true,
   "files": [
     ".agents/",
+    ".cursor/",
     "AGENTS.md",
     "CHANGELOG.md",
     "CONTRIBUTING.md",

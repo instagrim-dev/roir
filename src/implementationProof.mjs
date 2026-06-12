@@ -54,8 +54,75 @@ export function evidenceMatchesPlanRevision(evidence, plan) {
 
 /** Workspace root for agent-cli container (parent of `roi/`). */
 export function defaultRoiWorkspaceRoot() {
+  const packageRoot = defaultRoiPackageRoot();
+  return path.basename(packageRoot) === "roi"
+    ? path.resolve(packageRoot, "..")
+    : packageRoot;
+}
+
+export function defaultRoiPackageRoot() {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(here, "..", "..");
+  return path.resolve(here, "..");
+}
+
+function looksLikeRoiPackageRoot(candidate) {
+  return (
+    fs.existsSync(path.join(candidate, "package.json")) &&
+    fs.existsSync(path.join(candidate, "scripts", "lifecycle.mjs")) &&
+    fs.existsSync(path.join(candidate, "src", "service.mjs"))
+  );
+}
+
+export function resolveRoiPackageRoot(workspaceRoot = defaultRoiWorkspaceRoot()) {
+  const root = path.resolve(String(workspaceRoot || "").trim() || ".");
+  const candidates = [path.join(root, "roi"), root];
+  for (const candidate of candidates) {
+    if (looksLikeRoiPackageRoot(candidate)) {
+      return candidate;
+    }
+  }
+  return path.join(root, "roi");
+}
+
+export function resolveProductTreeRoot(productTree, workspaceRoot = defaultRoiWorkspaceRoot()) {
+  const key = String(productTree ?? "").trim().toLowerCase();
+  const root = path.resolve(String(workspaceRoot || "").trim() || ".");
+  if (key === "roi") {
+    return resolveRoiPackageRoot(root);
+  }
+  if (key === "bmo") {
+    return path.basename(root) === "bmo" ? root : path.join(root, "bmo");
+  }
+  return root;
+}
+
+function splitProductTreePath(relPath) {
+  const normalized = normalizeRepoRelativePath(relPath);
+  const slash = normalized.indexOf("/");
+  if (slash <= 0) {
+    return null;
+  }
+  return {
+    treeKey: normalized.slice(0, slash),
+    productRelativePath: normalized.slice(slash + 1)
+  };
+}
+
+export function resolveTouchedPath(relPath, workspaceRoot = defaultRoiWorkspaceRoot()) {
+  const parts = splitProductTreePath(relPath);
+  if (!parts) {
+    return path.resolve(workspaceRoot, normalizeRepoRelativePath(relPath));
+  }
+  return path.resolve(
+    resolveProductTreeRoot(parts.treeKey, workspaceRoot),
+    parts.productRelativePath
+  );
+}
+
+export function porcelainPathForTouched(relPath, workspaceRoot = defaultRoiWorkspaceRoot()) {
+  return normalizeRepoRelativePath(
+    path.relative(workspaceRoot, resolveTouchedPath(relPath, workspaceRoot))
+  );
 }
 
 export function oracleRunRecordPresent(proof, plan) {
@@ -125,8 +192,12 @@ export function normalizeRepoRelativePath(touched) {
   return String(touched).trim().replace(/\\/g, "/");
 }
 
-export function pathAppearsInPorcelain(relPath, porcelainLines) {
-  const norm = normalizeRepoRelativePath(relPath);
+export function pathAppearsInPorcelain(
+  relPath,
+  porcelainLines,
+  workspaceRoot = defaultRoiWorkspaceRoot()
+) {
+  const norm = porcelainPathForTouched(relPath, workspaceRoot);
   return (porcelainLines ?? []).some((line) => {
     const file = normalizeRepoRelativePath(String(line).slice(3));
     return file === norm;
@@ -178,11 +249,14 @@ export function validatePathsTouchedOnDisk(
         `roi:go verification pass paths_touched must be under bmo/ or roi/: ${touched}`
       );
     }
-    // Resolve-then-contain: a literal `bmo/`/`roi/` prefix is not sufficient
-    // because `roi/../../etc/passwd` passes startsWith() yet escapes `root`.
-    // Require the resolved path to stay within `root` (no `..` traversal).
-    const resolved = path.resolve(root, normalized);
-    const rel = path.relative(root, resolved);
+    const { treeKey } = splitProductTreePath(normalized);
+    const productRoot = resolveProductTreeRoot(treeKey, root);
+    // Resolve-then-contain: a logical `bmo/`/`roi/` prefix is not sufficient
+    // because `roi/../../etc/passwd` passes startsWith() yet escapes the
+    // selected product root. Require the resolved path to stay within that
+    // product tree root (no `..` traversal).
+    const resolved = resolveTouchedPath(normalized, root);
+    const rel = path.relative(productRoot, resolved);
     if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
       throw new Error(
         `roi:go verification pass paths_touched escapes the workspace root: ${touched}`
@@ -209,7 +283,7 @@ export function validatePathsTouchedOnDisk(
           `roi:go verification pass product_tree ${treeKey} requires paths under ${treePrefix}: ${touched}`
         );
       }
-      if (!pathAppearsInPorcelain(touched, porcelainLines)) {
+      if (!pathAppearsInPorcelain(touched, porcelainLines, root)) {
         throw new Error(
           `roi:go verification pass paths_touched not in git porcelain for product_tree ${treeKey}: ${touched}`
         );

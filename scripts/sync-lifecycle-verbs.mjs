@@ -2,7 +2,7 @@
 /**
  * Regenerates fixtures/lifecycle-verbs.json from the lifecycle helper's
  * `--list-verbs` output. Run after adding or renaming verbs in
- * `roi/scripts/lifecycle.mjs`.
+ * `scripts/lifecycle.mjs`.
  */
 import fs from "node:fs";
 import path from "node:path";

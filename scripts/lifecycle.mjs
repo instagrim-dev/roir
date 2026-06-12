@@ -2,20 +2,21 @@
 /**
  * ROI lifecycle helper — direct ROIService dispatcher.
  *
- * The canonical interface for ROI is the skill files under `roi/skills/`.
+ * The canonical interface for ROI is the skill files under `skills/`.
  * Skills shell to this helper to persist state. There is no MCP server
  * in front of ROIService; this helper IS the persistence path.
  *
  * Contract:
- *   node roi/scripts/lifecycle.mjs <verb> '<json-args>'
- *   node roi/scripts/lifecycle.mjs <verb> -          # JSON args from stdin
- *   node roi/scripts/lifecycle.mjs --list-verbs      # print verb registry
- *   node roi/scripts/lifecycle.mjs --help
+ *   node scripts/lifecycle.mjs <verb> '<json-args>'
+ *   node scripts/lifecycle.mjs <verb> -          # JSON args from stdin
+ *   node scripts/lifecycle.mjs --list-verbs      # print verb registry
+ *   node scripts/lifecycle.mjs --help
  *
  * Output: pretty-printed JSON of the service method's return value on stdout.
  * Exit code: 0 on success, 1 on service-thrown error or invalid usage.
  *
- * Storage: roi/.data/roi.sqlite by default; override with ROI_SQLITE_PATH.
+ * Storage: .data/roi.sqlite under the ROI package root by default; override
+ * with ROI_SQLITE_PATH.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -30,7 +31,7 @@ const roiRoot = path.join(__dirname, "..");
 // Verb registry. Exported so test/_helper-test-driver.mjs can derive its
 // in-process verb map directly from this single source of truth — preventing
 // the manual drift that bit the editorial/convergence harnesses when
-// `roi/src/server.mjs` was the canonical source.
+// `src/server.mjs` was the canonical source.
 //
 // Each entry: [verb, methodName].
 // Verb is snake_case to match historical MCP tool names and existing skill
@@ -151,10 +152,10 @@ export function dispatchVerb({ db, service, verb, method, args }) {
 
 function usage() {
   return [
-    "Usage: node roi/scripts/lifecycle.mjs <verb> '<json-args>'",
-    "       node roi/scripts/lifecycle.mjs <verb> -        # read JSON from stdin",
-    "       node roi/scripts/lifecycle.mjs --list-verbs",
-    "       node roi/scripts/lifecycle.mjs --help",
+    "Usage: node scripts/lifecycle.mjs <verb> '<json-args>'",
+    "       node scripts/lifecycle.mjs <verb> -        # read JSON from stdin",
+    "       node scripts/lifecycle.mjs --list-verbs",
+    "       node scripts/lifecycle.mjs --help",
     "",
     `Storage: ${defaultDbPath()} (override with ROI_SQLITE_PATH)`,
   ].join("\n");

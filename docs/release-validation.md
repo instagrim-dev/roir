@@ -65,8 +65,14 @@ order by `pnpm run release:check`):
    gate enforces that listed paths match an allowlist (no
    `bmo-import/`, `artifacts/`, `.data/`, `node_modules/`, or
    `package-lock.json`) and includes the runtime surfaces required for
-   handoff (`src/`, `skills/`, `agents/`, `hooks/`, `docs/`,
-   `fixtures/`, `scripts/`, `pnpm-lock.yaml`, `package.json`).
+   handoff (`src/`, `skills/`, `agents/`, `.cursor/rules/roi-commands.mdc`,
+   `hooks/`, `docs/`, `fixtures/`, `scripts/`, `pnpm-lock.yaml`,
+   `package.json`).
+8. **Extracted-package smoke** — the gate unpacks the tarball, installs
+   dependencies in the extracted `package/` root, and runs
+   `pnpm run smoke:integration` there so package-root assumptions, logical
+   `roi/...` `paths_touched`, and helper-verified oracle paths are proven
+   from the shipped artifact rather than only the checkout.
 
 Run the full gate from the ROI package root (`roi/` checkout or unpacked
 `package/` directory):
@@ -91,6 +97,7 @@ pnpm run release:check
   - `src/`
   - `skills/`
   - `agents/`
+  - `.cursor/rules/roi-commands.mdc`
   - `hooks/`
   - `docs/`
   - `fixtures/`
@@ -118,6 +125,9 @@ pnpm run release:check
   contract: pretty-printed JSON on stdout, `lifecycle: <verb> failed:`
   on stderr for service-thrown errors, exit 1 on unknown verbs and
   malformed JSON.
+- The integration smoke also proves helper-verified package-root behavior:
+  `evidence_record(run_oracles: true)` can execute a local oracle from the
+  active ROI package root and validate logical `roi/...` `paths_touched`.
 
 ### 3. Workflow Validation
 

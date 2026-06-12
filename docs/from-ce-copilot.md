@@ -7,7 +7,7 @@
 
 ## Setup (2 steps)
 
-**1. Install dependencies** from the `roi/` directory:
+**1. Install dependencies** from the ROI package root (`roi/` checkout or unpacked `package/` directory):
 
 ```bash
 pnpm install
@@ -18,7 +18,7 @@ etc. appear in the Copilot skill picker (same mechanism as
 compound-engineering):
 
 ```bash
-roi/scripts/install-agent-skills.sh copilot
+scripts/install-agent-skills.sh copilot
 ```
 
 This symlinks `skills/` into `~/.copilot/installed-plugins/roi-plugin/`

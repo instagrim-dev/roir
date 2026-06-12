@@ -8,12 +8,29 @@ import {
   parseOracleCommand
 } from "../src/oracleRunner.mjs";
 import { defaultRoiWorkspaceRoot, IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED } from "../src/implementationProof.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const workspaceRoot = defaultRoiWorkspaceRoot();
 
 test("oracleCwdForCommand uses workspace root for bmo targets", () => {
   assert.equal(oracleCwdForCommand("cd bmo && go test ./...", workspaceRoot), workspaceRoot);
   assert.notEqual(oracleCwdForCommand("node -e '0'", workspaceRoot), workspaceRoot);
+});
+
+test("oracleCwdForCommand uses unpacked package root for roi-local targets", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-oracle-root-"));
+  try {
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "src"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "package.json"), "{}");
+    fs.writeFileSync(path.join(dir, "scripts", "lifecycle.mjs"), "// stub");
+    fs.writeFileSync(path.join(dir, "src", "service.mjs"), "// stub");
+    assert.equal(oracleCwdForCommand('node -e "process.exit(0)"', dir), dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("runOracleCommand records pass and fail exit codes", () => {

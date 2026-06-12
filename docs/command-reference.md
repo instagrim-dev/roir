@@ -198,7 +198,8 @@ agent_claimed`). Pass **`run_oracles: true`** on `evidence_record` (with
 `content.plan_id`) so the helper executes `verification_targets`, fills
 `oracles_run`, and stamps `verified_by: mcp` (legacy stamp name; means
 **helper-verified**; surfaces as `implementation_proof_trust: mcp_verified`).
-`paths_touched` must be under `bmo/` or `roi/` and exist; set
+`paths_touched` must use logical `bmo/` or `roi/` prefixes and resolve to
+real files in the active workspace / package layout; set
 **`product_tree`** (`bmo`|`roi`) for an optional git porcelain cross-check.
 At verify gate, pass **`require_verified_proof: true`** on
 `verify_evaluate` to require `mcp_verified` go evidence for the run's

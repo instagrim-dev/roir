@@ -6,7 +6,7 @@ usage() {
   cat <<'EOF'
 Usage: install-agent-skills.sh <target> [options]
 
-Install or link ROI reference skills and (optionally) Cursor slash-command stubs
+Install or link ROI reference skills and (optionally) the user-wide Cursor rule
 so hosts other than a bundled Claude Code plugin can load the same flows as
 `docs/roi/invocation-skills-and-mcp.md` describes.
 

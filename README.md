@@ -11,7 +11,7 @@ runs, reviews, evidence, and reusable capabilities instead of chat-only state.
 The current package ships with:
 
 - a skill-driven command surface (`roi:start` through `roi:inspect`)
-- a lifecycle helper at `scripts/lifecycle.mjs` that skills shell to for
+- a lifecycle helper at `scripts/lifecycle.mjs`; skills shell to it for
   state persistence (no MCP server, no daemon)
 - a local SQLite system of record
 - agent descriptors, hook scripts, and A2A-aware execution paths
@@ -153,8 +153,9 @@ a single lifecycle verb and which ones are compound skill-layer flows.
   [`skills/`](./skills) and shells to `node scripts/lifecycle.mjs <verb>`
   to persist state. There is no MCP server, daemon, or long-running
   process to start.
-- ROI persists state locally in `.data/roi.sqlite` by default; override
-  with `ROI_SQLITE_PATH`. SQLite WAL handles concurrent helper invocations.
+- ROI persists state locally in `.data/roi.sqlite` under the active ROI
+  package root by default; override with `ROI_SQLITE_PATH`. SQLite WAL
+  handles concurrent helper invocations.
 - `roi:draft` can execute locally or pause on remote A2A work.
 - convergence missions bind one active seam to one executable plan at a time
 - `roi:review` is the required quality gate before a run is considered ready.
@@ -175,8 +176,9 @@ ROI includes local integration files for:
 - [`agents/`](./agents) — agent descriptors used by hosts that support them
 - [`hooks/`](./hooks) — hook scripts
 - [`.cursor/rules/roi-commands.mdc`](./.cursor/rules/roi-commands.mdc) —
-  Cursor vocabulary injection (Cursor has no skill picker; the rule
-  documents the command surface to every Cursor agent session)
+  Cursor vocabulary injection (Cursor has no skill picker; the packaged
+  ROI root ships the rule so the same contract works from a checkout or
+  unpacked tarball)
 
 These files expose ROI's command surface and runtime behavior in a local
 host environment. None of them start an MCP server; the ROI runtime is
@@ -196,10 +198,10 @@ scripts/install-agent-skills.sh claude-user
 ```
 
 Cursor gets vocabulary injection via `.cursor/rules/roi-commands.mdc`
-(already checked in); no separate skill-install step is required for this
-checkout. To surface the ROI vocabulary user-wide in other Cursor projects,
-run `scripts/install-agent-skills.sh cursor-user` (installs the command
-rules into `~/.cursor/rules/`).
+(shipped in the ROI package root); no separate skill-install step is
+required when you open that root in Cursor. To surface the ROI vocabulary
+user-wide in other Cursor projects, run `scripts/install-agent-skills.sh
+cursor-user` (installs the same rule into `~/.cursor/rules/`).
 
 This release documents ROI as a private local-first package. See
 [`docs/installation.md`](./docs/installation.md) for setup and
