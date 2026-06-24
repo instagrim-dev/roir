@@ -125,6 +125,13 @@ After validation, wire the unpacked package into your host with
 The canonical sample mission lives at
 [`fixtures/reference-mission.json`](./fixtures/reference-mission.json).
 
+## Lifecycle Sketch
+
+This sketch is the onboarding view: each stage says what you are trying to do
+and what durable outcome should exist when that stage is done.
+
+![ROI lifecycle sketch for junior engineers](./assets/roi-lifecycle-junior-sketch.svg)
+
 ## Commands
 
 The top-level ROI command surface is:
@@ -159,6 +166,9 @@ a single lifecycle verb and which ones are compound skill-layer flows.
 - `roi:draft` can execute locally or pause on remote A2A work.
 - convergence missions bind one active seam to one executable plan at a time
 - `roi:review` is the required quality gate before a run is considered ready.
+- a full `roi:review` pass completes the run only after every run plan has
+  substantive `roi:go` evidence; stale earlier blockers are superseded by
+  later pass reviews in `roi:inspect`
 - `roi:edit` and `roi:publish` are compound skill-layer commands over the
   same durable backend, not new lifecycle verbs.
 - publication evidence on a convergence mission finalizes parent progress and

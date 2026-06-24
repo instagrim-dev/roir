@@ -101,6 +101,11 @@ Copilot CLI, use `$roi-go` / `$roi-drive` from the skill picker (see
 `.cursor/rules/roi-commands.mdc`. The numbered steps below are manual
 step-by-step control.
 
+Before the step list, use this sketch to anchor the intent and durable outcome
+of each stage:
+
+![ROI lifecycle sketch for junior engineers](../assets/roi-lifecycle-junior-sketch.svg)
+
 Use the top-level ROI command surface in this order:
 
 1. `roi:work`
@@ -140,6 +145,9 @@ On the first green-path run:
   - review records
 - `roi:review` should move the run toward `roi:edit`, `roi:publish`, or direct
   completion
+- On a full pass, `roi:review` completes the run, clears superseded blockers
+  from `roi:inspect`, and surfaces `roi:publish` plus `roi:learn` in
+  `next_actions`
 - `roi:publish` marks the handoff boundary once the run is ready
 - `roi:learn` may return `noop` until enough repeated successful
   activations exist

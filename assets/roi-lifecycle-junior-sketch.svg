@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1450" height="2640" viewBox="0 0 1450 2640" role="img" aria-labelledby="title desc">
+  <title id="title">ROI lifecycle sketch</title>
+  <desc id="desc">Portrait hand-drawn overview of the ROI lifecycle with direct prose describing planning, execution, review, publication, and reuse.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="10" markerHeight="10" orient="auto-start-reverse">
+      <path d="M 1 1 L 11 6 L 1 11" fill="none" stroke="#202020" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .bg { fill: #faf7ef; }
+      .title { font: 700 54px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f1f1f; }
+      .subtitle { font: 600 26px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #2a2a2a; }
+      .lane { font: 700 26px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f1f1f; }
+      .cardtitle { font: 700 32px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f1f1f; }
+      .mono { font: 700 24px "Courier New", monospace; fill: #1f1f1f; }
+      .label { font: 700 23px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #1f1f1f; }
+      .body { font: 500 23px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #232323; }
+      .note { font: 600 23px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #232323; }
+      .small { font: 500 21px "Virgil", "Comic Sans MS", "Segoe Print", cursive; fill: #343434; }
+      .ink { stroke: #202020; stroke-width: 3.1; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .arrow { stroke: #202020; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; fill: none; marker-end: url(#arrow); }
+      .dash { stroke-dasharray: 10 12; }
+      .yellow { fill: #f6e59d; }
+      .blue { fill: #cfe1f3; }
+      .green { fill: #d6edc6; }
+      .orange { fill: #f6d3aa; }
+      .pink { fill: #efc7d3; }
+      .gray { fill: #e9e2d6; }
+      .red { fill: #efb1ab; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1450" height="2640" class="bg"/>
+  <rect x="24" y="24" width="1402" height="2592" rx="28" ry="28" fill="none" stroke="#d8d0c2" stroke-width="2"/>
+
+  <text x="70" y="96" class="title">ROI lifecycle</text>
+  <text x="72" y="142" class="subtitle">Each stage records durable state and advances the mission.</text>
+
+  <g transform="translate(72 182)">
+    <rect x="0" y="0" width="1306" height="102" rx="18" ry="18" class="gray" stroke="#202020" stroke-width="3"/>
+    <rect x="6" y="6" width="1294" height="90" rx="18" ry="18" class="ink"/>
+    <text x="18" y="42" class="note">`roi:go` changes the repo and records proof.</text>
+    <text x="18" y="78" class="note">`roi:drive` advances state and stops at human gates.</text>
+  </g>
+
+  <g transform="translate(72 314)">
+    <rect x="0" y="0" width="1306" height="98" rx="18" ry="18" class="gray" stroke="#202020" stroke-width="3"/>
+    <rect x="6" y="6" width="1294" height="86" rx="18" ry="18" class="ink"/>
+    <text x="18" y="38" class="cardtitle">Current state</text>
+    <text x="18" y="74" class="mono">roi:inspect</text>
+    <text x="270" y="74" class="body">This view reports the mission summary and next_actions.</text>
+  </g>
+
+  <g transform="translate(72 458)">
+    <text x="0" y="0" class="lane">Planning</text>
+    <line x1="0" y1="18" x2="1306" y2="18" class="ink"/>
+  </g>
+
+  <g transform="translate(72 500)">
+    <rect x="0" y="0" width="610" height="246" rx="22" ry="22" class="yellow" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="596" height="232" rx="22" ry="22" class="ink"/>
+    <text x="24" y="42" class="cardtitle">1. Open mission</text>
+    <text x="24" y="78" class="mono">roi:work</text>
+    <text x="24" y="132" class="body">The mission opens around a named outcome.</text>
+    <text x="24" y="184" class="body">A mission ID and first brief draft are recorded.</text>
+  </g>
+
+  <g transform="translate(768 500)">
+    <rect x="0" y="0" width="610" height="246" rx="22" ry="22" class="blue" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="596" height="232" rx="22" ry="22" class="ink"/>
+    <text x="24" y="42" class="cardtitle">2. Clarify brief</text>
+    <text x="24" y="78" class="mono">roi:brief</text>
+    <text x="24" y="132" class="body">The brief defines scope, constraints,</text>
+    <text x="24" y="164" class="body">and success criteria.</text>
+    <text x="24" y="214" class="body">The revised brief becomes the working contract.</text>
+  </g>
+
+  <path d="M 682 624 L 768 624" class="arrow"/>
+
+  <g transform="translate(72 788)">
+    <rect x="0" y="0" width="610" height="284" rx="22" ry="22" class="green" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="596" height="270" rx="22" ry="22" class="ink"/>
+    <text x="24" y="42" class="cardtitle">3. Ground with sources</text>
+    <text x="24" y="78" class="mono">roi:source</text>
+    <text x="24" y="132" class="body">Sources anchor the mission in external evidence.</text>
+    <text x="24" y="182" class="body">Research records are linked to the mission.</text>
+  </g>
+
+  <g transform="translate(768 788)">
+    <rect x="0" y="0" width="610" height="270" rx="22" ry="22" class="orange" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="596" height="256" rx="22" ry="22" class="ink"/>
+    <text x="24" y="42" class="cardtitle">4. Make the plan</text>
+    <text x="24" y="78" class="mono">roi:outline</text>
+    <text x="24" y="132" class="body">The brief becomes falsifiable work with</text>
+    <text x="24" y="164" class="body">proof targets and routing metadata.</text>
+    <text x="24" y="214" class="body">Plan records define the executable path.</text>
+  </g>
+
+  <path d="M 682 922 L 768 922" class="arrow"/>
+
+  <g transform="translate(72 1106)">
+    <text x="0" y="0" class="lane">Execution</text>
+    <line x1="0" y1="18" x2="1306" y2="18" class="ink"/>
+  </g>
+
+  <g transform="translate(72 1152)">
+    <rect x="0" y="0" width="1306" height="276" rx="22" ry="22" class="green" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="1292" height="262" rx="22" ry="22" class="ink"/>
+    <text x="24" y="42" class="cardtitle">5. Do the repo work</text>
+    <text x="24" y="78" class="mono">roi:go</text>
+    <text x="24" y="132" class="body">The repo changes and the work is verified.</text>
+    <text x="24" y="184" class="body">An `evidence_record` captures agent or helper proof.</text>
+  </g>
+
+  <path d="M 725 1058 L 725 1152" class="arrow"/>
+
+  <g transform="translate(72 1480)">
+    <rect x="0" y="0" width="1306" height="254" rx="22" ry="22" class="blue" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="1292" height="240" rx="22" ry="22" class="ink"/>
+    <text x="24" y="42" class="cardtitle">6. Move the lifecycle</text>
+    <text x="24" y="78" class="mono">roi:drive</text>
+    <text x="24" y="132" class="body">The lifecycle follows current state and next_actions.</text>
+    <text x="24" y="182" class="body">State advances, or the run stops at a gate.</text>
+  </g>
+
+  <path d="M 725 1428 L 725 1480" class="arrow"/>
+
+  <g transform="translate(220 1790)">
+    <rect x="0" y="0" width="820" height="244" rx="22" ry="22" class="red" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="806" height="230" rx="22" ry="22" class="ink"/>
+    <text x="24" y="42" class="cardtitle">7. Judge the gate</text>
+    <text x="24" y="78" class="mono">roi:review</text>
+    <text x="24" y="132" class="body">The evidence is judged at the verify gate.</text>
+    <text x="24" y="184" class="body">The verdict is pass, fail, or partial.</text>
+  </g>
+
+  <path d="M 725 1734 L 725 1790" class="arrow"/>
+
+  <g transform="translate(1086 1858)">
+    <rect x="0" y="0" width="292" height="102" rx="18" ry="18" class="gray" stroke="#202020" stroke-width="3"/>
+    <rect x="6" y="6" width="280" height="90" rx="18" ry="18" class="ink"/>
+    <text x="16" y="38" class="note">`roi:drive` pauses here.</text>
+    <text x="16" y="72" class="note">Verify and publish remain human judgments.</text>
+  </g>
+
+  <g transform="translate(72 2100)">
+    <text x="0" y="0" class="lane">Resolution</text>
+    <line x1="0" y1="18" x2="1306" y2="18" class="ink"/>
+  </g>
+
+  <g transform="translate(72 2144)">
+    <rect x="0" y="0" width="610" height="238" rx="22" ry="22" class="pink" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="596" height="224" rx="22" ry="22" class="ink"/>
+    <text x="24" y="42" class="cardtitle">8A. Respond to gaps</text>
+    <text x="24" y="78" class="mono">roi:edit</text>
+    <text x="24" y="132" class="body">Review gaps are corrected without losing mission context.</text>
+    <text x="24" y="184" class="body">A revised plan or retry run becomes available.</text>
+  </g>
+
+  <g transform="translate(768 2144)">
+    <rect x="0" y="0" width="610" height="252" rx="22" ry="22" class="yellow" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="596" height="238" rx="22" ry="22" class="ink"/>
+    <text x="24" y="42" class="cardtitle">8B. Mark the handoff</text>
+    <text x="24" y="78" class="mono">roi:publish</text>
+    <text x="24" y="132" class="body">The external “ready” marker is recorded</text>
+    <text x="24" y="164" class="body">after the verify gate passes.</text>
+    <text x="24" y="214" class="body">Publication evidence closes the handoff.</text>
+  </g>
+
+  <path d="M 660 2034 L 378 2144" class="arrow"/>
+  <path d="M 790 2034 L 1072 2144" class="arrow"/>
+
+  <g transform="translate(72 2426)">
+    <rect x="0" y="0" width="610" height="104" rx="18" ry="18" class="gray" stroke="#202020" stroke-width="3"/>
+    <rect x="7" y="7" width="596" height="90" rx="18" ry="18" class="ink"/>
+    <text x="18" y="52" class="note">The next step is defined by the next missing artifact.</text>
+  </g>
+
+  <g transform="translate(768 2426)">
+    <rect x="0" y="0" width="610" height="104" rx="18" ry="18" class="orange" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="596" height="90" rx="18" ry="18" class="ink"/>
+    <text x="18" y="38" class="cardtitle">9. Harvest reuse</text>
+    <text x="18" y="74" class="body">Repeated wins become capability ideas. Otherwise the result is noop.</text>
+  </g>
+
+  <path d="M 1072 2396 L 1072 2426" class="arrow"/>
+</svg>

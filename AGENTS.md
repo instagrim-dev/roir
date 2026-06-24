@@ -70,6 +70,12 @@ mission created
 and publish gates**. The operator runs `roi:verify` and `roi:publish`
 explicitly because both stages produce durable judgments.
 
+A full `roi:verify` pass reconciles the run ledger after `roi:go` evidence is
+substantive for every run plan: queued run-scope workflow tasks are completed,
+the run becomes `completed`, superseded stale blockers are hidden from
+`status_get.blocking_issues`, and `next_actions` moves to `roi:publish` plus
+`roi:learn`. Partial checkpoint passes deliberately do not publish.
+
 ## Two loops
 
 | Loop | Command | What moves |

@@ -117,6 +117,12 @@ Typical outputs:
 - final review record for the current gate
 - next action: `roi:edit`, `roi:publish`, or `roi:learn`
 
+A full pass requires substantive `roi:go` evidence for every run plan. When
+accepted, it completes queued run-scope workflow tasks, marks the run
+`completed`, and suppresses stale blockers superseded by later pass reviews.
+Partial checkpoint passes keep publish unavailable and leave `roi:go` in
+`next_actions`.
+
 ## `roi:edit`
 
 Purpose:
@@ -272,6 +278,10 @@ Typical outputs:
   pauses at the review gate (`verify_gate` task stage).
 - `roi:review` is the decision point that turns a paused draft into an edit,
   publish, or learn path.
+- A full `roi:review` pass reconciles run task bookkeeping only after every
+  run plan has substantive `roi:go` proof; old failed review rows stay in
+  history but no longer appear as active blockers after a later pass supersedes
+  them.
 - `roi:edit` may repeat multiple times before publication.
 - **`roi:learn`** is valuable only after repeated successful runs. A `noop`
   result is expected early in a mission's life and is not an error.

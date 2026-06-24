@@ -1148,6 +1148,14 @@ export class ROIService {
       : verifyTasks;
 
     if (completableVerifyTasks.length === 0) {
+      if (verdict === VerifyVerdict.PASS && !partialCheckpoint) {
+        return this._finalizeRunIfDoneAfterFullVerifyPass(run.id, {
+          status: "ok",
+          summary: `Review ${verdict}`,
+          evidence,
+          verdict
+        });
+      }
       return mutation({
         status: "ok",
         summary: `Review ${verdict}`,
@@ -1217,7 +1225,7 @@ export class ROIService {
       );
     }
 
-    return this._finalizeRunIfDone(run.id, {
+    return this._finalizeRunIfDoneAfterFullVerifyPass(run.id, {
       status: "ok",
       summary: `Review ${verdict}`,
       evidence,
@@ -1368,11 +1376,7 @@ export class ROIService {
         evidence_count: evidenceCount,
         patterns: this.patternList({ mission_id }).patterns,
         capability_proposals: capabilities.filter((capability) => capability.status === CapabilityStatus.PROPOSED),
-        blocking_issues: reviews.filter((review) => review.blocking_issues.length > 0).map((review) => ({
-          review_id: review.id,
-          review_type: review.review_type,
-          blocking_issues: review.blocking_issues
-        })),
+        blocking_issues: activeBlockingIssues(reviews),
         learning_readiness: this._enlightenmentReadiness(mission_id),
         convergence,
         mission_go_progress: this._missionGoProgress(mission_id),
@@ -2055,7 +2059,7 @@ export class ROIService {
       run = this._updateRun({
         ...run,
         status: RUN_COMPLETED,
-        summary: run.summary || "Workflow completed",
+        summary: basePayload.summary || run.summary || "Workflow completed",
         ended_at: this.now().toISOString()
       });
       for (const activation of this.activationList({ run_id: run.id }).activations) {
@@ -2104,6 +2108,23 @@ export class ROIService {
       ...basePayload,
       run
     });
+  }
+
+  _finalizeRunIfDoneAfterFullVerifyPass(runId, basePayload = {}) {
+    for (const task of this._listRunTasks(runId)) {
+      if ([
+        TASK_QUEUED,
+        TASK_RUNNING,
+        TASK_INPUT_REQUIRED,
+        TASK_APPROVAL_REQUIRED,
+        TASK_AUTH_REQUIRED,
+        TASK_WAITING,
+        TASK_PAUSED
+      ].includes(task.status)) {
+        this._updateTask({ ...task, status: TASK_COMPLETED, blocking_reason: "" });
+      }
+    }
+    return this._finalizeRunIfDone(runId, basePayload);
   }
 
   _buildStageTasks({ mission, plan, run, activation, capability, contextPack, input, mode }) {
@@ -3432,6 +3453,30 @@ function asArray(value) {
 
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function activeBlockingIssues(reviews) {
+  const latestByReviewSlot = new Map();
+  for (const review of reviews) {
+    latestByReviewSlot.set(reviewSupersessionKey(review), review);
+  }
+  return [...latestByReviewSlot.values()]
+    .filter((review) => review.blocking_issues.length > 0)
+    .map((review) => ({
+      review_id: review.id,
+      review_type: review.review_type,
+      blocking_issues: review.blocking_issues
+    }));
+}
+
+function reviewSupersessionKey(review) {
+  if (review.task_id) {
+    return `task:${review.task_id}:${review.review_type}`;
+  }
+  if (review.activation_id) {
+    return `activation:${review.activation_id}:${review.review_type}`;
+  }
+  return `review:${review.id}`;
 }
 
 function asStageArray(value, fallback) {

@@ -116,6 +116,96 @@ test("ROI run expands one plan into staged workflow and completes after verify",
   assert.ok(finalTasks.every((task) => task.status === TaskStatus.COMPLETED));
 });
 
+test("ROI full verify pass reconciles externally satisfied multi-plan workflow ledger", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service, {
+    plan: {
+      name: "Plan A",
+      actions: ["implement a"],
+      verification_targets: ["A holds"]
+    }
+  });
+  service.planGenerate({
+    mission_id: mission.id,
+    plans: [
+      {
+        name: "Plan B",
+        actions: ["implement b"],
+        verification_targets: ["B holds"]
+      }
+    ]
+  });
+  const plans = service.planList({ mission_id: mission.id }).plans;
+  const runResult = await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: plans.map((plan) => plan.id),
+    mode: "local",
+    prompt: "stub one plan, then external roi:go satisfies all plans"
+  });
+
+  assert.equal(runResult.run.status, RunStatus.PAUSED);
+  assert.ok(
+    service.taskList({ run_id: runResult.run.id }).tasks.some((task) => task.status === TaskStatus.QUEUED),
+    "multi-plan local run should still have queued workflow tasks before external roi:go reconciliation"
+  );
+  for (const plan of plans) {
+    recordSubstantiveRoiGo(service, mission.id, plan);
+  }
+
+  const verified = service.verifyEvaluate({
+    run_id: runResult.run.id,
+    verdict: VerifyVerdict.PASS,
+    notes: "mission-level roi:go evidence satisfies all run plans"
+  });
+
+  assert.equal(verified.run.status, RunStatus.COMPLETED);
+  assert.equal(verified.run.summary, "Review pass");
+  assert.deepEqual(verified.next_actions, ["roi:publish", "roi:learn"]);
+  assert.ok(
+    service.taskList({ run_id: runResult.run.id }).tasks.every((task) => task.status === TaskStatus.COMPLETED),
+    "full verify pass should close queued workflow ledger tasks once all run plans have substantive roi:go evidence"
+  );
+  assert.deepEqual(service.statusGet({ mission_id: mission.id }).summary.next_actions, ["roi:publish", "roi:learn"]);
+});
+
+test("ROI status_get hides superseded blocking reviews", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+  const run = (await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: [plan.id],
+    mode: "agent",
+    prompt: "manual review supersession"
+  })).run;
+  const task = service.taskList({ run_id: run.id }).tasks[0];
+
+  service.reviewRecord({
+    mission_id: mission.id,
+    run_id: run.id,
+    task_id: task.id,
+    activation_id: task.payload.activation_id,
+    review_type: StageKind.SPEC_REVIEW,
+    subject_ref: task.id,
+    verdict: ReviewVerdict.FAIL,
+    blocking_issues: ["stale_failure"]
+  });
+  assert.equal(service.statusGet({ mission_id: mission.id }).summary.blocking_issues.length, 1);
+
+  service.reviewRecord({
+    mission_id: mission.id,
+    run_id: run.id,
+    task_id: task.id,
+    activation_id: task.payload.activation_id,
+    review_type: StageKind.SPEC_REVIEW,
+    subject_ref: task.id,
+    verdict: ReviewVerdict.PASS,
+    blocking_issues: []
+  });
+
+  assert.deepEqual(service.statusGet({ mission_id: mission.id }).summary.blocking_issues, []);
+});
+
 test("ROI failed spec review pauses the run and blocks later stages", async (t) => {
   const { service } = createHarness(t);
   const mission = seedMission(service, {

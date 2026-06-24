@@ -36,7 +36,10 @@ the honest label when the verify-gate task should not complete. The caller
 still supplies the verdict; the helper does not re-run oracles unless
 `run_oracles: true`. Full `pass` requires substantive verification evidence
 for every run plan (typically from `roi:go`), not stub local implement
-output.
+output. Once that full pass is accepted, the helper reconciles run-scope
+workflow tasks, marks the run `completed`, suppresses superseded stale blockers
+in `status_get.blocking_issues`, and exposes `roi:publish` plus `roi:learn` as
+the next lifecycle actions.
 
 `roi:go` must not record verification `pass` without an **implementation proof
 bundle** (product-tree diff or `paths_touched`, plus non-vacuous oracles). See

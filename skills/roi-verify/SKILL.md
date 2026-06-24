@@ -96,6 +96,13 @@ The lifecycle helper distinguishes two trust levels for `roi:go` evidence:
   and owns the result. Set by `evidence_record` with `run_oracles: true`,
   or `verify_evaluate` with `run_oracles: true` at the gate.
 
+On a full `pass` (not `allow_partial_verification`), the helper also reconciles
+the run workflow ledger: run-scope queued/paused tasks are completed only after
+every run plan has substantive `roi:go` proof, the run becomes `completed`, and
+`next_actions` should lead with `roi:publish`. Stale blocking review rows are
+kept in history but are hidden from `status_get.summary.blocking_issues` once a
+later pass review supersedes the same review slot.
+
 When `status_get.summary.verification_policy` is **`strict`**, `verify_evaluate(pass)`
 auto-requires `mcp_verified` go evidence (same as `require_verified_proof: true`).
 Cite `verification_policy` and `implementation_proof_trust` in `notes`.
