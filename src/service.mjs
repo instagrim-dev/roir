@@ -17,6 +17,12 @@ import {
   defaultRoiWorkspaceRoot,
   verifyGateNextActions
 } from "./implementationProof.mjs";
+import {
+  missionRequiresHelperVerifiedProof,
+  missionVerificationPolicyFromBrief,
+  validatePerPlanProofDistinctness,
+  validateStrictMissionGoEvidence
+} from "./missionVerificationPolicy.mjs";
 import { applyMcpOracleVerification, applyVerifyGateOracleVerification } from "./oracleRunner.mjs";
 import { AgentExecutor } from "./agentExecutor.mjs";
 import {
@@ -649,6 +655,22 @@ export class ROIService {
     const source = input.source?.trim() || "manual";
     const evidenceType = input.type?.trim() || "note";
     const content = asObject(input.content);
+    const brief = this._getLatestBrief(mission.id);
+    const missionEvidence = this.evidenceList({ mission_id: mission.id }).evidence;
+
+    if (evidenceType === "quality_review") {
+      const evidence = this._insertEvidence({
+        mission_id: mission.id,
+        run_id: run?.id ?? "",
+        type: evidenceType,
+        source: source || "quality_review",
+        result: input.result?.trim() || "",
+        artifact_ref: input.artifact_ref?.trim() || "",
+        content
+      });
+      return mutation({ status: "ok", summary: "Quality review evidence recorded" }, { evidence });
+    }
+
     let planForProof = null;
     if (source === "roi:go" && evidenceType === "verification") {
       const planId = String(content.plan_id ?? content.planId ?? "").trim();
@@ -660,6 +682,14 @@ export class ROIService {
         content.plan_id = planId;
         content.plan_revision = planForProof.revision;
       }
+    }
+    validateStrictMissionGoEvidence(input, brief);
+    if (source === "roi:go" && evidenceType === "verification" && planForProof) {
+      validatePerPlanProofDistinctness({
+        content,
+        evidenceList: missionEvidence,
+        planId: planForProof.id
+      });
     }
     if (input.run_oracles === true) {
       if (source !== "roi:go" || evidenceType !== "verification") {
@@ -1032,8 +1062,13 @@ export class ROIService {
 
     const missionPlans = this.planList({ mission_id: run.mission_id }).plans;
     const missionEvidence = this.evidenceList({ mission_id: run.mission_id }).evidence;
+    const brief = this._getLatestBrief(run.mission_id);
     const checkpoint = partialVerificationCheckpoint(missionPlans, missionEvidence, run.plan_ids);
     const partialCheckpoint = allowPartial && checkpoint.partial_checkpoint;
+    const policyStrict = missionRequiresHelperVerifiedProof(brief);
+    const requireVerifiedProof =
+      input.require_verified_proof === true ||
+      (policyStrict && verdict === VerifyVerdict.PASS && !allowPartial);
 
     if (verdict === VerifyVerdict.PASS && allowPartial && !checkpoint.allowed) {
       throw new Error(
@@ -1049,7 +1084,7 @@ export class ROIService {
         "verify_evaluate(pass) blocked: run plan(s) still need substantive roi:go verification evidence"
       );
     }
-    if (verdict === VerifyVerdict.PASS && input.require_verified_proof === true) {
+    if (verdict === VerifyVerdict.PASS && requireVerifiedProof) {
       const mcpOk = partialCheckpoint
         ? runPlansHaveMcpVerifiedGoEvidenceForSubstantive(missionPlans, missionEvidence, run.plan_ids)
         : runPlansHaveMcpVerifiedGoEvidence(missionPlans, missionEvidence, run.plan_ids);
@@ -1061,8 +1096,9 @@ export class ROIService {
     }
     const content = {
       notes: input.notes?.trim() || "",
-      brief_revision: this._getLatestBrief(run.mission_id)?.revision ?? 0,
-      plan_ids: run.plan_ids
+      brief_revision: brief?.revision ?? 0,
+      plan_ids: run.plan_ids,
+      verification_policy: missionVerificationPolicyFromBrief(brief)
     };
     if (input.run_oracles === true) {
       const oraclePlanIds = partialCheckpoint ? checkpoint.substantive_plan_ids : run.plan_ids;
@@ -1313,11 +1349,14 @@ export class ROIService {
     );
 
     const convergence = this._buildConvergenceSummary(mission_id);
+    const brief = this._getLatestBrief(mission_id);
 
     return {
       summary: {
         mission,
-        brief: this._getLatestBrief(mission_id),
+        brief,
+        verification_policy: missionVerificationPolicyFromBrief(brief),
+        requires_helper_verified_proof: missionRequiresHelperVerifiedProof(brief),
         plans: this._listLatestPlans(mission_id),
         tasks,
         runs,

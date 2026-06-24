@@ -62,7 +62,7 @@ After each stage skill runs, re-read `status_get` — do not assume
 | Phrase | Effect |
 |--------|--------|
 | `drive only` | When `next_actions` leads with `roi:go`, stop and report — do not execute the implementation skill. |
-| `strict` / `verified` | When `roi:go` is invoked, it must use `run_oracles: true` on every `evidence_record` pass; when `roi:verify` is reached, the verdict must use `require_verified_proof: true`. The operator runs `roi:verify` themselves under the mandatory pause; this skill only records that strict mode is active in the report. |
+| `strict` / `verified` | When `roi:go` is invoked, it must use `run_oracles: true` on every `evidence_record` pass; when `roi:verify` is reached, the verdict must use `require_verified_proof: true`. Also auto-applies when `status_get.summary.verification_policy` is `strict`. The operator runs `roi:verify` themselves under the mandatory pause; this skill only records that strict mode is active in the report. |
 
 ## What this skill does NOT do
 

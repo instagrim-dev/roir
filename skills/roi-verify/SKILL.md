@@ -42,8 +42,8 @@ the plan." Read
    ```
 
 2. For each plan in scope, judge the **latest** `source: roi:go`
-   verification row (newest `created_at`); ignore stale pass/fail from
-   earlier runs. Ignore stub-only evidence whose body is only
+   verification row (newest `captured_at`; `created_at` only on legacy rows);
+   ignore stale pass/fail from earlier runs. Ignore stub-only evidence whose
    `LOCAL_EXECUTION_COMPLETED` from local `implement` tasks — that is not
    implementation proof.
 
@@ -96,9 +96,17 @@ The lifecycle helper distinguishes two trust levels for `roi:go` evidence:
   and owns the result. Set by `evidence_record` with `run_oracles: true`,
   or `verify_evaluate` with `run_oracles: true` at the gate.
 
+When `status_get.summary.verification_policy` is **`strict`**, `verify_evaluate(pass)`
+auto-requires `mcp_verified` go evidence (same as `require_verified_proof: true`).
+Cite `verification_policy` and `implementation_proof_trust` in `notes`.
+
+**Post-ship review:** if `quality_review` with `result: reopen` lists a plan
+and is the **last** reopen-or-go event for that plan (chronological order by
+`captured_at`, then evidence `id`), treat the mission as **not verify-ready**
+until remediation is re-go'd (`partial` or `fail` with explicit plan ids).
+
 `status_get.summary.implementation_proof_trust` reflects which level applies
-to in-scope plans. Cite this in `notes` when recording `pass` so reviewers
-know which trust level the verdict rests on.
+to in-scope plans.
 
 ## What this skill does NOT do
 

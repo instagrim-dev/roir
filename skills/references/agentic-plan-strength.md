@@ -80,6 +80,8 @@ requiring mechanical prescription.
 ### `roi:brief`
 
 - **Load-bearing:** `problem`, `constraints`, `success_criteria`, `non_goals`
+- **Maturity / graduation:** add `verification_policy: strict` (helper also
+  infers strict from `graduation_mode`, `Ax→5`, etc. — explicit is preferred)
 - **Avoid:** implementation file lists in the brief
 
 ### `roi:outline` / `plan_generate`

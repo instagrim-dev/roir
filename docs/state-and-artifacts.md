@@ -99,6 +99,9 @@ Substantive work evidence uses `source: roi:go`, `type: verification`, and a
 
 `status_get` (mission scope) also exposes:
 
+- `verification_policy` — `default` | `strict` (from latest brief; see
+  [`mission-verification-policy.md`](./mission-verification-policy.md))
+- `requires_helper_verified_proof` — true when policy is strict
 - `mission_go_progress` — per-plan open/substantive counts for completion mode
 - `implementation_proof_trust` — `agent_claimed` (default) or `mcp_verified`
   when `implementation_proof.verified_by` is `mcp` (legacy stamp name; means
@@ -110,6 +113,12 @@ Substantive work evidence uses `source: roi:go`, `type: verification`, and a
   `verified_by: mcp`
 - **`product_tree: bmo|roi`** — porcelain cross-check for `paths_touched`
   (paths must still be under `bmo/` or `roi/` and exist on disk)
+
+**`quality_review` evidence** (post-ship remediation bridge):
+
+- `type: quality_review`, `result: reopen`, `content.plan_ids` — invalidates
+  substantive `roi:go` for listed plans when reopen is the last go/reopen
+  event (see [`mission-verification-policy.md`](./mission-verification-policy.md))
 
 `verify_evaluate` optional fields:
 

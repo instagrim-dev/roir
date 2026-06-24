@@ -73,7 +73,7 @@ line numbers, or test scripts.
 | Field | Write as |
 |-------|----------|
 | `problem` | One paragraph naming the unresolved tension. Concrete enough that an outsider could decide if a proposed change addresses it. |
-| `constraints` | Imperatives (`must not`, `must`). Each is independently checkable. |
+| `constraints` | Imperatives (`must not`, `must`). Each is independently checkable. Include `verification_policy: strict` on graduation / Ax→5 / maturity-iteration missions (auto-inferred if omitted, but explicit is preferred). |
 | `success_criteria` | Falsifiable invariants. State the property; do not name the test that proves it. |
 | `non_goals` | One bullet per excluded scope. Use to stop re-litigation in the outline pass. |
 | `assumptions` | What's taken as true. If wrong, the plan is wrong — surface in `open_questions` if uncertain. |

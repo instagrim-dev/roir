@@ -233,9 +233,11 @@ and the operator did not say “drive only”, invoke **`roi:go`** for the missi
 (lowest open plan by wave) before `verify_evaluate(pass)`. Local `run_create`
 implement remains stub-only (`LOCAL_EXECUTION_COMPLETED`).
 
-**Strict mode:** operator says `strict` / `verified drive`, or sets
-`ROI_STRICT_VERIFY=1` — `roi:go` uses `run_oracles: true`; `verify_evaluate(pass)`
-uses `require_verified_proof: true`. See `skills/roi-drive/SKILL.md`.
+**Strict mode:** operator says `strict` / `verified drive`, sets
+`ROI_STRICT_VERIFY=1`, or brief `verification_policy` is **strict** (graduation /
+maturity missions) — `roi:go` uses `run_oracles: true`; `verify_evaluate(pass)`
+requires helper-verified proof automatically. See
+[`docs/mission-verification-policy.md`](./mission-verification-policy.md).
 
 Typical outputs:
 - one `→ step name` progress line per lifecycle helper invocation

@@ -72,10 +72,16 @@ operator said **drive only**), do **not** stop after a single plan:
    review tasks), reach `verify_gate` (mandatory pause), and the operator
    will run `roi:verify`.
 
-### Strict mode (operator says strict / verified)
+### Strict mode (operator says strict / verified **or** brief policy is strict)
 
-When the operator activates strict mode for the encompassing `roi:drive`
-invocation, every `evidence_record` with `result: pass` must include:
+Strict applies when **any** of these hold:
+
+1. Operator says `strict` / `verified` on `roi:drive` or sets `ROI_STRICT_VERIFY=1`.
+2. `status_get.summary.verification_policy` is **`strict`** (brief carries
+   `verification_policy: strict` or graduation/maturity hints — see
+   [`docs/mission-verification-policy.md`](../../docs/mission-verification-policy.md)).
+
+When strict applies, every `evidence_record` with `result: pass` must include:
 
 - **`run_oracles: true`** — helper runs `verification_targets` and sets
   `verified_by: mcp` (legacy stamp name; means **helper-verified**).
@@ -221,8 +227,25 @@ Required for every `evidence_record` with `result: pass`:
 | **Verify-only** | Set `verify_only_plan: true` only when the plan has **no** `actions`; the helper rejects the flag when actions exist |
 | **Honesty** | Without `run_oracles`, `oracles_ok: true` means you ran every target in this session (agent-claimed). With `run_oracles: true`, the helper runs targets and owns `oracles_ok` / `oracles_run`. |
 | **Trust** | Default pass is **agent-claimed** (`implementation_proof_trust: agent_claimed`). Pass `run_oracles: true` on `evidence_record` for **helper-verified** (`verified_by: mcp`, legacy stamp). |
+| **Per-plan bundle** | Do not reuse the same `diff_stat` + `paths_touched` across plans; helper rejects duplicates unless `shared_bundle: true`. |
 
-### Trust model (do not over-promise)
+### Post-ship quality review → reopen plans
+
+When implementation-quality or `holistic-review-remediator` finds gaps **after**
+`roi:go` evidence exists, record `quality_review` before `roi:verify`:
+
+```bash
+node roi/scripts/lifecycle.mjs evidence_record '{
+  "mission_id":"<id>",
+  "type":"quality_review",
+  "source":"holistic-review-remediator",
+  "result":"reopen",
+  "content":{"plan_ids":["<plan_id>"],"summary":"<gap>","remediation_commit":"<sha>"}
+}'
+```
+
+Then remediate in-tree and re-run `roi:go` for reopened plans (with
+`run_oracles: true` when `verification_policy` is strict).
 
 Two trust levels:
 

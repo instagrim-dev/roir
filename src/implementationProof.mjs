@@ -6,6 +6,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { evidenceTimestamp, qualityReviewInvalidatesPlan } from "./missionVerificationPolicy.mjs";
 
 const PRODUCT_TREE_KEYS = new Set(["bmo", "roi"]);
 
@@ -304,7 +305,7 @@ export function runPlansHaveMcpVerifiedGoEvidence(plans, evidenceList, planIds) 
       continue;
     }
     const latest = byPlan.get(plan.id);
-    if (!isSubstantiveRoiGoVerification(latest, plan)) {
+    if (!isSubstantiveRoiGoVerification(latest, plan, { evidenceList })) {
       return false;
     }
     if (implementationProofTrust(latest) !== IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED) {
@@ -410,7 +411,7 @@ export function partialVerificationCheckpoint(plans, evidenceList, runPlanIds) {
   const byPlan = latestRoiGoVerificationByPlan(evidenceList);
   const substantivePlanIds = [];
   for (const plan of scoped) {
-    if (isSubstantiveRoiGoVerification(byPlan.get(plan.id), plan)) {
+    if (isSubstantiveRoiGoVerification(byPlan.get(plan.id), plan, { evidenceList })) {
       substantivePlanIds.push(plan.id);
     }
   }
@@ -478,11 +479,11 @@ function planIdFromEvidence(evidence) {
   return String(content.plan_id ?? content.planId ?? "").trim();
 }
 
-/** Latest roi:go verification row per plan_id (newest created_at wins). */
+/** Latest roi:go verification row per plan_id (newest captured_at wins). */
 export function latestRoiGoVerificationByPlan(evidenceList) {
   const byPlan = new Map();
   const sorted = [...(evidenceList ?? [])].sort((a, b) =>
-    String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""))
+    evidenceTimestamp(b).localeCompare(evidenceTimestamp(a))
   );
   for (const evidence of sorted) {
     const source = String(evidence.source ?? "").trim();
@@ -515,8 +516,14 @@ function isVerifyOnlyEvidence(evidence, plan) {
 }
 
 /** Pass with implementation_proof.oracles_ok and diff or paths (matches MCP pass guard). */
-export function isSubstantiveRoiGoVerification(evidence, plan = null) {
+export function isSubstantiveRoiGoVerification(evidence, plan = null, options = {}) {
   if (!evidence) {
+    return false;
+  }
+  const evidenceList = options.evidenceList ?? null;
+  const planIdForReopen =
+    plan?.id ?? String(evidence.content?.plan_id ?? evidence.content?.planId ?? "").trim();
+  if (evidenceList && planIdForReopen && qualityReviewInvalidatesPlan(evidenceList, planIdForReopen)) {
     return false;
   }
   const source = String(evidence.source ?? "").trim();
@@ -576,21 +583,21 @@ export function planDependenciesMet(plan, plans, evidenceList, options = {}) {
     if (!depPlan) {
       continue;
     }
-    if (!isSubstantiveRoiGoVerification(byPlan.get(depPlan.id), depPlan)) {
+    if (!isSubstantiveRoiGoVerification(byPlan.get(depPlan.id), depPlan, { evidenceList })) {
       return false;
     }
   }
   return true;
 }
 
-function planNeedsSubstantiveGo(plan, byPlan) {
+function planNeedsSubstantiveGo(plan, byPlan, evidenceList) {
   const targets = Array.isArray(plan.verification_targets) ? plan.verification_targets : [];
   const actions = Array.isArray(plan.actions) ? plan.actions : [];
   if (!targets.length && !actions.length) {
     return false;
   }
   const latest = byPlan.get(plan.id);
-  return !latest || !isSubstantiveRoiGoVerification(latest, plan);
+  return !latest || !isSubstantiveRoiGoVerification(latest, plan, { evidenceList });
 }
 
 /**
@@ -614,7 +621,7 @@ export function missionNeedsRoiGo(plans, evidenceList, options = {}) {
     if (planIds && !planIds.has(plan.id)) {
       continue;
     }
-    if (planNeedsSubstantiveGo(plan, byPlan)) {
+    if (planNeedsSubstantiveGo(plan, byPlan, evidenceList)) {
       return true;
     }
   }
@@ -640,7 +647,9 @@ export function substantiveRoiGoForPlan(evidenceList, planId, plans = null) {
     return false;
   }
   const plan = Array.isArray(plans) ? plans.find((candidate) => candidate.id === id) ?? null : null;
-  return isSubstantiveRoiGoVerification(latestRoiGoVerificationByPlan(evidenceList).get(id), plan);
+  return isSubstantiveRoiGoVerification(latestRoiGoVerificationByPlan(evidenceList).get(id), plan, {
+    evidenceList
+  });
 }
 
 /** Per-plan work-track progress for drive / go completion loops. */
@@ -651,7 +660,7 @@ export function missionGoProgress(plans, evidenceList, options = {}) {
   let substantive = 0;
   for (const plan of scoped) {
     const latest = byPlan.get(plan.id);
-    if (isSubstantiveRoiGoVerification(latest, plan)) {
+    if (isSubstantiveRoiGoVerification(latest, plan, { evidenceList })) {
       substantive += 1;
       continue;
     }
@@ -688,7 +697,7 @@ export function missionImplementationProofTrust(plans, evidenceList, options = {
   let sawSubstantive = false;
   for (const plan of scoped) {
     const latest = byPlan.get(plan.id);
-    if (!isSubstantiveRoiGoVerification(latest, plan)) {
+    if (!isSubstantiveRoiGoVerification(latest, plan, { evidenceList })) {
       return IMPLEMENTATION_PROOF_TRUST_AGENT_CLAIMED;
     }
     sawSubstantive = true;

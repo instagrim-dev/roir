@@ -964,6 +964,7 @@ function recordSubstantiveRoiGo(service, missionId, plan) {
   if (!targets.length && !actions.length) {
     return null;
   }
+  const planKey = String(plan.id).slice(-8);
   return service.evidenceRecord({
     mission_id: missionId,
     type: "verification",
@@ -973,7 +974,7 @@ function recordSubstantiveRoiGo(service, missionId, plan) {
       plan_id: plan.id,
       implementation_proof: {
         oracles_ok: true,
-        diff_stat: "bmo/go.mod | 0 +0",
+        diff_stat: `bmo/go.mod | plan-${planKey} | 0 +0`,
         paths_touched: ["bmo/go.mod"],
         oracles_run: (targets.length ? [{ cmd: targets[0], ok: true }] : [])
       }
@@ -1665,6 +1666,156 @@ test("ROI verifyEvaluate require_verified_proof blocks agent_claimed go", async 
       }),
     /require_verified_proof/
   );
+});
+
+test("ROI strict mission blocks agent_claimed roi:go pass", (t) => {
+  const { service } = createHarness(t);
+  const mission = service.missionCreate({
+    title: "Strict maturity mission",
+    goal: "Ax→5 stretch"
+  }).mission;
+  service.briefRevise({
+    mission_id: mission.id,
+    constraints: ["verification_policy: strict"]
+  });
+  service.planGenerate({
+    mission_id: mission.id,
+    plans: [
+      {
+        name: "U1",
+        actions: ["implement"],
+        verification_targets: ['node -e "process.exit(0)"']
+      }
+    ]
+  });
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+  assert.throws(
+    () =>
+      service.evidenceRecord({
+        mission_id: mission.id,
+        type: "verification",
+        source: "roi:go",
+        result: "pass",
+        content: {
+          plan_id: plan.id,
+          implementation_proof: {
+            oracles_ok: true,
+            diff_stat: "bmo/go.mod | 1 +1",
+            paths_touched: ["bmo/go.mod"],
+            oracles_run: [{ cmd: 'node -e "process.exit(0)"', ok: true }]
+          }
+        }
+      }),
+    /verification_policy is strict/
+  );
+});
+
+test("ROI strict mission auto require_verified_proof at verify gate", async (t) => {
+  const { service } = createHarness(t);
+  const mission = service.missionCreate({
+    title: "Strict verify",
+    goal: "graduation"
+  }).mission;
+  service.briefRevise({
+    mission_id: mission.id,
+    constraints: ["graduation_mode: A-grade"]
+  });
+  service.planGenerate({
+    mission_id: mission.id,
+    plans: [
+      {
+        name: "Gate plan",
+        actions: ["implement"],
+        verification_targets: ['node -e "process.exit(0)"']
+      }
+    ]
+  });
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+  const run = (
+    await service.runCreate({
+      mission_id: mission.id,
+      mode: "local",
+      prompt: "stub"
+    })
+  ).run;
+  assert.throws(
+    () =>
+      service.evidenceRecord({
+        mission_id: mission.id,
+        type: "verification",
+        source: "roi:go",
+        result: "pass",
+        content: {
+          plan_id: plan.id,
+          implementation_proof: {
+            oracles_ok: true,
+            diff_stat: "bmo/go.mod | 0 +0",
+            paths_touched: ["bmo/go.mod"],
+            oracles_run: [{ cmd: 'node -e "process.exit(0)"', ok: true }]
+          }
+        }
+      }),
+    /verification_policy is strict/
+  );
+  service.evidenceRecord({
+    mission_id: mission.id,
+    type: "verification",
+    source: "roi:go",
+    result: "pass",
+    run_oracles: true,
+    content: {
+      plan_id: plan.id,
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "bmo/go.mod | 0 +0",
+        paths_touched: ["bmo/go.mod"]
+      }
+    }
+  });
+  const { summary } = service.statusGet({ mission_id: mission.id });
+  assert.equal(summary.verification_policy, "strict");
+  assert.equal(summary.requires_helper_verified_proof, true);
+  assert.equal(summary.mission_go_progress.complete, true);
+  const verdict = service.verifyEvaluate({
+    run_id: run.id,
+    verdict: VerifyVerdict.PASS,
+    notes: "strict mission with helper-verified roi:go"
+  });
+  assert.equal(verdict.evidence.result, VerifyVerdict.PASS);
+});
+
+test("ROI quality_review reopen invalidates substantive go progress", (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+  service.evidenceRecord({
+    mission_id: mission.id,
+    type: "verification",
+    source: "roi:go",
+    result: "pass",
+    content: {
+      plan_id: plan.id,
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "bmo/x | 1 +1",
+        oracles_run: [{ cmd: "go test", ok: true }]
+      }
+    }
+  });
+  assert.equal(service.statusGet({ mission_id: mission.id }).summary.mission_go_progress.complete, true);
+  service.evidenceRecord({
+    mission_id: mission.id,
+    type: "quality_review",
+    source: "holistic-review-remediator",
+    result: "reopen",
+    content: {
+      plan_ids: [plan.id],
+      summary: "post-ship review gap"
+    }
+  });
+  const after = service.statusGet({ mission_id: mission.id }).summary;
+  assert.equal(after.mission_go_progress.complete, false);
+  assert.equal(after.next_actions[0], "roi:go");
 });
 
 test("ROI verifyEvaluate require_verified_proof allows mcp_verified go", async (t) => {
