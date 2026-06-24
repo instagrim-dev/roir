@@ -54,6 +54,95 @@ test("A2AExecutor.invoke rejects a blocked target before constructing a client",
   assert.equal(createdClient, false, "must not reach the SDK client for a blocked URL");
 });
 
+test("A2AExecutor.invoke rejects hostnames that resolve to private or link-local addresses", async () => {
+  for (const address of ["10.1.2.3", "172.16.2.3", "192.168.2.3", "169.254.169.254", "fd00::1", "fe80::1"]) {
+    let createdClient = false;
+    const clientFactory = {
+      async createFromUrl() {
+        createdClient = true;
+        return {};
+      }
+    };
+    const executor = new A2AExecutor({
+      clientFactory,
+      dnsLookup: async () => [{ address, family: 4 }]
+    });
+    await assert.rejects(
+      () => executor.invoke({ agentCardUrl: "https://delegated-agent.example.test/card", message: "hi" }),
+      /blocked private\/loopback/
+    );
+    assert.equal(createdClient, false, `must not reach the SDK client when DNS resolves to ${address}`);
+  }
+});
+
+test("A2AExecutor.invoke allows a hostname that resolves to a public address", async () => {
+  let lookedUpHost = "";
+  let createdClient = false;
+  const clientFactory = {
+    async createFromUrl(url) {
+      createdClient = true;
+      assert.equal(url, "https://delegated-agent.example.test/card");
+      return {
+        async sendMessage() {
+          return {
+            taskId: "task-public",
+            contextId: "ctx-public",
+            parts: [{ kind: "text", text: "ok" }]
+          };
+        }
+      };
+    }
+  };
+  const executor = new A2AExecutor({
+    clientFactory,
+    dnsLookup: async (hostname, options) => {
+      lookedUpHost = hostname;
+      assert.deepEqual(options, { all: true, verbatim: true });
+      return [{ address: "93.184.216.34", family: 4 }];
+    }
+  });
+
+  const result = await executor.invoke({
+    agentCardUrl: "https://delegated-agent.example.test/card",
+    message: "hi"
+  });
+
+  assert.equal(lookedUpHost, "delegated-agent.example.test");
+  assert.equal(createdClient, true);
+  assert.equal(result.text, "ok");
+});
+
+test("A2AExecutor.invoke honors allowPrivate for hostnames resolving to private addresses", async () => {
+  let createdClient = false;
+  const clientFactory = {
+    async createFromUrl() {
+      createdClient = true;
+      return {
+        async sendMessage() {
+          return {
+            taskId: "task-private",
+            contextId: "ctx-private",
+            parts: [{ kind: "text", text: "ok" }]
+          };
+        }
+      };
+    }
+  };
+  const executor = new A2AExecutor({
+    allowPrivate: true,
+    clientFactory,
+    dnsLookup: async () => [{ address: "10.1.2.3", family: 4 }]
+  });
+
+  const result = await executor.invoke({
+    agentCardUrl: "https://delegated-agent.example.test/card",
+    message: "hi"
+  });
+
+  assert.equal(createdClient, true);
+  assert.equal(result.text, "ok");
+});
+
 test("A2AExecutor.invoke requires an agent card URL", async () => {
   const executor = new A2AExecutor({ clientFactory: { async createFromUrl() { return {}; } } });
   await assert.rejects(() => executor.invoke({ agentCardUrl: "" }), /is required for A2A execution/);

@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import dns from "node:dns/promises";
+import { isIP } from "node:net";
 import { ClientFactory } from "@a2a-js/sdk/client";
 
 const ALLOWED_A2A_SCHEMES = new Set(["http:", "https:"]);
@@ -32,15 +34,45 @@ function isBlockedA2AHostname(hostname) {
   }
   const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
   if (ipv4) {
-    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    const [a, b, c, d] = [Number(ipv4[1]), Number(ipv4[2]), Number(ipv4[3]), Number(ipv4[4])];
+    if ([a, b, c, d].some((part) => part > 255)) return true;
     if (a === 127) return false; // loopback 127.0.0.0/8 — operator's own machine
     if (a === 0) return true; // 0.0.0.0/8 "this host"
     if (a === 10) return true; // RFC1918 10/8
+    if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
     if (a === 169 && b === 254) return true; // link-local (covers metadata range)
     if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918 172.16/12
+    if (a === 192 && b === 0 && c === 0) return true; // IETF protocol assignments
+    if (a === 192 && b === 0 && c === 2) return true; // TEST-NET-1
     if (a === 192 && b === 168) return true; // RFC1918 192.168/16
+    if (a === 198 && (b === 18 || b === 19)) return true; // benchmark testing
+    if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2
+    if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3
+    if (a >= 224) return true; // multicast, reserved, broadcast
   }
   return false;
+}
+
+function isLocalhostName(hostname) {
+  const host = String(hostname || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  return host === "localhost" || host.endsWith(".localhost");
+}
+
+function isLiteralIPAddress(hostname) {
+  const host = String(hostname || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  return Boolean(isIP(host));
+}
+
+function isBlockedA2AResolvedAddress(address) {
+  const host = String(address || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "::1") {
+    return true;
+  }
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4 && Number(ipv4[1]) === 127) {
+    return true;
+  }
+  return isBlockedA2AHostname(host);
 }
 
 export function assertSafeAgentCardUrl(agentCardUrl, { allowPrivate } = {}) {
@@ -65,10 +97,29 @@ export function assertSafeAgentCardUrl(agentCardUrl, { allowPrivate } = {}) {
   return parsed;
 }
 
+async function assertSafeResolvedAgentCardUrl(agentCardUrl, { allowPrivate, lookup = dns.lookup } = {}) {
+  const parsed = assertSafeAgentCardUrl(agentCardUrl, { allowPrivate });
+  const permitPrivate =
+    allowPrivate ?? process.env.ROI_A2A_ALLOW_PRIVATE === "1";
+  if (permitPrivate || isLiteralIPAddress(parsed.hostname) || isLocalhostName(parsed.hostname)) {
+    return parsed;
+  }
+
+  const addresses = await lookup(parsed.hostname, { all: true, verbatim: true });
+  const blocked = addresses.find((entry) => isBlockedA2AResolvedAddress(entry?.address));
+  if (blocked) {
+    throw new Error(
+      `a2a_agent_card_url resolves to a blocked private/loopback target (set ROI_A2A_ALLOW_PRIVATE=1 to override): ${agentCardUrl}`
+    );
+  }
+  return parsed;
+}
+
 export class A2AExecutor {
-  constructor({ clientFactory, allowPrivate } = {}) {
+  constructor({ clientFactory, allowPrivate, dnsLookup } = {}) {
     this.clientFactory = clientFactory ?? new ClientFactory();
     this.allowPrivate = allowPrivate;
+    this.dnsLookup = dnsLookup;
   }
 
   async invoke({ agentCardUrl, taskId = "", contextId = "", message = "" }) {
@@ -76,7 +127,10 @@ export class A2AExecutor {
       throw new Error("a2a_agent_card_url is required for A2A execution");
     }
 
-    assertSafeAgentCardUrl(agentCardUrl, { allowPrivate: this.allowPrivate });
+    await assertSafeResolvedAgentCardUrl(agentCardUrl, {
+      allowPrivate: this.allowPrivate,
+      lookup: this.dnsLookup
+    });
 
     const client = await this.clientFactory.createFromUrl(agentCardUrl);
 
