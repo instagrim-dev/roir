@@ -1497,6 +1497,56 @@ test("ROI run_resume advances spec_review when substantive roi:go exists", async
   assert.equal(specReviews.at(-1).verdict, ReviewVerdict.PASS);
 });
 
+test("ROI status_get hides local stub blocker once substantive roi:go exists", async (t) => {
+  const prevStub = process.env.ROI_ALLOW_LOCAL_STUB;
+  delete process.env.ROI_ALLOW_LOCAL_STUB;
+  t.after(() => {
+    if (prevStub === undefined) {
+      delete process.env.ROI_ALLOW_LOCAL_STUB;
+    } else {
+      process.env.ROI_ALLOW_LOCAL_STUB = prevStub;
+    }
+  });
+
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+
+  const runResult = await service.runCreate({
+    mission_id: mission.id,
+    mode: "local",
+    prompt: "stub only"
+  });
+  const blocked = service.statusGet({ mission_id: mission.id }).summary;
+  assert.ok(
+    blocked.blocking_issues.some((issue) =>
+      issue.blocking_issues.includes("local_implement_stub_only")
+    )
+  );
+
+  service.evidenceRecord({
+    mission_id: mission.id,
+    run_id: runResult.run.id,
+    type: "verification",
+    source: "roi:go",
+    result: "pass",
+    content: {
+      plan_id: plan.id,
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "bmo/go.mod | 0 +0",
+        paths_touched: ["bmo/go.mod"],
+        oracles_run: [{ cmd: plan.verification_targets?.[0] ?? "go test ./...", ok: true }]
+      }
+    }
+  });
+
+  const afterGo = service.statusGet({ mission_id: mission.id }).summary;
+  assert.equal(afterGo.mission_go_progress.complete, true);
+  assert.deepEqual(afterGo.blocking_issues, []);
+  assert.ok(!afterGo.next_actions.includes("roi:go"));
+});
+
 test("ROI status_get exposes mission_go_progress", (t) => {
   const { service } = createHarness(t);
   const mission = seedMission(service);

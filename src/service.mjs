@@ -1385,7 +1385,7 @@ export class ROIService {
         evidence_count: evidenceCount,
         patterns: this.patternList({ mission_id }).patterns,
         capability_proposals: capabilities.filter((capability) => capability.status === CapabilityStatus.PROPOSED),
-        blocking_issues: activeBlockingIssues(reviews),
+        blocking_issues: this._activeBlockingIssues(mission_id, reviews),
         learning_readiness: this._enlightenmentReadiness(mission_id),
         convergence,
         mission_go_progress: this._missionGoProgress(mission_id),
@@ -3324,6 +3324,25 @@ export class ROIService {
     });
   }
 
+  _activeBlockingIssues(missionId, reviews) {
+    const plans = this._listLatestPlans(missionId);
+    const evidence = this.evidenceList({ mission_id: missionId }).evidence;
+    return activeBlockingIssues(reviews, {
+      plans,
+      evidence,
+      taskForReview: (review) => {
+        if (!review.task_id) {
+          return null;
+        }
+        try {
+          return this._getTask(review.task_id);
+        } catch {
+          return null;
+        }
+      }
+    });
+  }
+
   _nextActions(missionId) {
     const mission = this._getMission(missionId);
     const controller = this._getConvergenceController(missionId);
@@ -3464,17 +3483,27 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-function activeBlockingIssues(reviews) {
+function activeBlockingIssues(reviews, { plans = [], evidence = [], taskForReview = () => null } = {}) {
   const latestByReviewSlot = new Map();
   for (const review of reviews) {
     latestByReviewSlot.set(reviewSupersessionKey(review), review);
   }
   return [...latestByReviewSlot.values()]
-    .filter((review) => review.blocking_issues.length > 0)
-    .map((review) => ({
+    .map((review) => {
+      const task = taskForReview(review);
+      const roiGoSatisfied = task?.plan_id
+        ? substantiveRoiGoForPlan(evidence, task.plan_id, plans)
+        : false;
+      return {
+        review,
+        blocking_issues: filterReviewBlockingIssues(review.blocking_issues, { roiGoSatisfied })
+      };
+    })
+    .filter(({ blocking_issues }) => blocking_issues.length > 0)
+    .map(({ review, blocking_issues }) => ({
       review_id: review.id,
       review_type: review.review_type,
-      blocking_issues: review.blocking_issues
+      blocking_issues
     }));
 }
 
