@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { normalizeInlinePlan } from "../src/planIntake.mjs";
+
+const sharedFixturesPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../bmo/internal/plancompass/testdata/intake_fixtures.json"
+);
+const sharedFixtures = JSON.parse(readFileSync(sharedFixturesPath, "utf8"));
 
 test("normalizeInlinePlan extracts Codex plan steps and verification", () => {
   const normalized = normalizeInlinePlan({
@@ -95,3 +104,24 @@ test("normalizeInlinePlan returns a low-confidence warning without steps", () =>
   assert.deepEqual(normalized.plans, []);
   assert.equal(normalized.warnings.length, 1);
 });
+
+for (const fixture of sharedFixtures) {
+  test(`shared intake fixture: ${fixture.name}`, () => {
+    const normalized = normalizeInlinePlan({
+      text: fixture.text,
+      source_kind: fixture.source_kind || undefined,
+    });
+    if (fixture.want_source_kind) {
+      assert.equal(normalized.source_kind, fixture.want_source_kind);
+    }
+    const actions = normalized.plans.flatMap((plan) => plan.actions);
+    assert.deepEqual(actions, fixture.want_actions);
+    const verification = [
+      ...new Set(normalized.plans.flatMap((plan) => plan.verification_targets)),
+    ];
+    assert.deepEqual(verification, fixture.want_verification);
+    if (fixture.want_requires_verification !== undefined) {
+      assert.equal(normalized.requires_verification_targets, fixture.want_requires_verification);
+    }
+  });
+}
