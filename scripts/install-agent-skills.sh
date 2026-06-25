@@ -204,7 +204,7 @@ codex)
     cat > "$PLUGIN_DIR/.codex-plugin/plugin.json" <<PLUGIN_JSON
 {
   "name": "roi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ROI: Reusable Operational Intelligence — roi:drive, roi:go, and the full mission lifecycle.",
   "skills": "./skills/",
   "interface": {

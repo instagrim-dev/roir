@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1
+
+Public-release cleanup after the history scrub.
+
+- remove private scratch review/dogfood artifacts from the published history
+  and release tarball surface
+- align release-facing docs on public-source, local-first tarball
+  distribution while preserving the no-registry publishing constraint
+- keep the extracted-package release gate as the release bar
+
 ## 0.1.0
 
 Initial ROI release as a **skill-driven, local-first** package.

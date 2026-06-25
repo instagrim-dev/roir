@@ -20,8 +20,8 @@ mission lifecycle.
 If you received a release tarball:
 
 ```bash
-shasum -a 256 -c roi-plugin-0.1.0.tgz.sha256
-tar -xzf roi-plugin-0.1.0.tgz
+shasum -a 256 -c roi-plugin-0.1.1.tgz.sha256
+tar -xzf roi-plugin-0.1.1.tgz
 cd package
 pnpm install --frozen-lockfile
 ```
