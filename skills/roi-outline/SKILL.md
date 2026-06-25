@@ -25,10 +25,14 @@ covers outcome strength, binding altitude, and property-style verification.
 ## Inputs
 
 1. **Mission ID** required.
-2. **Optional source artifact** — a CE plan, maturity requirements doc, or
+2. **Optional inline Plan text** — output pasted or carried in-context from
+   Codex Plan mode, Copilot, Claude Code, Cursor, CE, or Markdown. Run
+   `plan_normalize` first; use `normalized.plans` as the draft plan array
+   after applying this skill's quality checks.
+3. **Optional source artifact** — a CE plan, maturity requirements doc, or
    convergence seam manifest. When present, **import** constraints and
    properties from it; do not re-scope in ROI.
-3. **Optional plans array** — when the operator already has a draft plan
+4. **Optional plans array** — when the operator already has a draft plan
    structure, pass it directly to `plan_generate`.
 
 ## Procedure
@@ -164,7 +168,22 @@ covers outcome strength, binding altitude, and property-style verification.
    See [`references/agentic-plan-strength.md`](../references/agentic-plan-strength.md)
    "Abstraction restraint" for the doctrine and rubric scoring.
 
-5. Compose the plans. Each plan is an object:
+5. **Normalize inline Plan input when present.** If the prompt/context
+   includes third-party Plan text, call:
+
+   ```bash
+   node roi/scripts/lifecycle.mjs plan_normalize '{"stage":"outline","text":"<inline plan text>"}'
+   ```
+
+   Treat `normalized.plans` as draft input, not final authority. Re-check
+   `actions`, `verification_targets`, waves, dependencies, abstraction
+   restraint, and mission-wide oracles before `plan_generate`. If
+   `confidence` is `low` or no plans are returned, stop at `roi:clarify`
+   and record the missing scope instead of inventing plans. If plans are
+   returned with `requires_verification_targets: true`, add runnable targets
+   before persistence; do not persist prose placeholders as oracles.
+
+6. Compose the plans. Each plan is an object:
 
    ```json
    {
@@ -195,7 +214,7 @@ covers outcome strength, binding altitude, and property-style verification.
    call `plan_revise` after the fact to wire dependencies once all UUIDs
    exist.
 
-6. Persist:
+7. Persist:
 
    ```bash
    node roi/scripts/lifecycle.mjs plan_generate '<json>'
@@ -204,13 +223,13 @@ covers outcome strength, binding altitude, and property-style verification.
    `<json>` is `{"mission_id": "<id>", "plans": [<plan>, ...]}`. Output
    echoes the generated plan UUIDs and revisions.
 
-7. Confirm storage:
+8. Confirm storage:
 
    ```bash
    node roi/scripts/lifecycle.mjs plan_list '{"mission_id":"<id>"}'
    ```
 
-8. If a plan needs adjustment after generation, use:
+9. If a plan needs adjustment after generation, use:
 
    ```bash
    node roi/scripts/lifecycle.mjs plan_revise '<json>'

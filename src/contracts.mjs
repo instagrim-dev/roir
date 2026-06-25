@@ -461,6 +461,12 @@ export const ToolSchemas = Object.freeze({
       wave: z.number()
     }))
   }),
+  planNormalize: z.object({
+    text: z.string(),
+    source_kind: z.string().optional(),
+    stage: z.string().optional(),
+    mission_title: z.string().optional()
+  }),
   taskCreate: z.object({
     mission_id: z.string(),
     plan_id: z.string().optional(),

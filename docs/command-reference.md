@@ -26,6 +26,14 @@ The lifecycle helper exposes snake_case verbs (for example
 `node scripts/lifecycle.mjs <verb> '<json-args>'`; the verb registry is
 the canonical surface (`node scripts/lifecycle.mjs --list-verbs`).
 
+`plan_normalize` is the non-persistent intake seam for inline Plan text from
+Codex, Copilot, Claude Code, Cursor, CE, or plain Markdown. It returns draft
+ROI `plans` plus a `brief_patch`; the invoked skill must still persist with
+`brief_revise` or `plan_generate` before execution. When inline text has no
+explicit validation lines, returned plans intentionally have empty
+`verification_targets` and `requires_verification_targets: true` so
+`roi:outline` can add runnable gates.
+
 Some commands are a **direct** wrapper over one primary verb. Others
 are **compound skill-layer flows** that orchestrate multiple verbs
 against the same durable ROI state.

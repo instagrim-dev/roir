@@ -109,11 +109,16 @@ Resolve input in this priority order:
 2. **Outline artifact** — `.json` from `plan_generate` / `roi:outline`.
    Call `status_get`, then `plan_list` to load stored plans; use the
    artifact only to confirm wave order or CE bundle ids.
-3. **Brief or requirements file** — `.md` / `.txt` CE plan or maturity doc.
+3. **Inline Plan text** — Plan-mode output from Codex, Copilot, Claude
+   Code, Cursor, CE, or Markdown. Call `plan_normalize` with
+   `stage:"go"`, persist returned plans with `plan_generate` after
+   `roi:outline` quality checks, then execute the stored ROI plans. Do not
+   record `roi:go` evidence against unpersisted external Plan text.
+4. **Brief or requirements file** — `.md` / `.txt` CE plan or maturity doc.
    Extract goal and constraints; `mission_list` for a match, else
    `mission_create` + `brief_revise`. If no plans yet, run `plan_generate`
    once, then continue.
-4. **Goal string** — `mission_list` for title match; confirm reuse with
+5. **Goal string** — `mission_list` for title match; confirm reuse with
    operator when ambiguous. Else `mission_create`.
 
 When input is omitted, use the mission ID from the previous turn.

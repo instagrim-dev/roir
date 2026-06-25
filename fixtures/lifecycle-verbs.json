@@ -27,6 +27,7 @@
     "plan_generate",
     "plan_get",
     "plan_list",
+    "plan_normalize",
     "plan_revise",
     "policy_evaluate",
     "policy_record_decision",

@@ -17,6 +17,12 @@ This skill is a loop, not a stage. On each iteration:
 record evidence, does not record verdicts. It only **dispatches** to the
 stage skill that owns each verb.
 
+When the operator provides inline third-party Plan text instead of a stored
+mission/plan, `roi:drive` still stays thin: run `plan_normalize` only to
+identify the stage-owned payload, then dispatch to `roi:outline` or
+`roi:go` to persist and execute it. Drive does not execute normalized
+plans directly.
+
 ## Mandatory pauses
 
 `roi:drive` stops without auto-advancing past either gate:
@@ -52,9 +58,11 @@ After each stage skill runs, re-read `status_get` — do not assume
 
 ## Inputs
 
-1. **Mission ID** required. (Use the mission ID from the previous turn when
-   omitted.)
-2. **Optional operator constraint** — `drive only` (do not invoke `roi:go`),
+1. **Mission ID** required unless inline Plan text or a goal string is
+   opening/resolving the mission through the next stage.
+2. **Optional inline Plan text** — normalized through `plan_normalize`, then
+   handed to the stage skill that owns durable writes.
+3. **Optional operator constraint** — `drive only` (do not invoke `roi:go`),
    `strict` / `verified` (require helper-verified proof at the gate).
 
 ## Operator constraints

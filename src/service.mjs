@@ -25,6 +25,7 @@ import {
 } from "./missionVerificationPolicy.mjs";
 import { applyMcpOracleVerification, applyVerifyGateOracleVerification } from "./oracleRunner.mjs";
 import { AgentExecutor } from "./agentExecutor.mjs";
+import { normalizeInlinePlan } from "./planIntake.mjs";
 import {
   CapabilityPromotionSource,
   CapabilityStatus,
@@ -451,6 +452,14 @@ export class ROIService {
       updated.push(this.planRevise({ plan_id: assignment.plan_id, wave: assignment.wave }));
     }
     return mutation({ status: "ok", summary: "Waves assigned" }, { plans: updated.map((item) => item.plan) });
+  }
+
+  planNormalize(input) {
+    return {
+      status: "ok",
+      summary: "Inline plan normalized",
+      normalized: normalizeInlinePlan(input)
+    };
   }
 
   taskCreate(input) {

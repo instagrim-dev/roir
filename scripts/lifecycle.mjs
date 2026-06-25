@@ -57,6 +57,7 @@ export const VERBS = [
   ["plan_list", "planList"],
   ["plan_revise", "planRevise"],
   ["plan_assign_waves", "planAssignWaves"],
+  ["plan_normalize", "planNormalize"],
   // task
   ["task_create", "taskCreate"],
   ["task_transition", "taskTransition"],

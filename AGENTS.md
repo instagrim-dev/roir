@@ -115,6 +115,36 @@ surface — do not memorize the list.
 Storage: `.data/roi.sqlite` by default; override with `ROI_SQLITE_PATH`.
 SQLite WAL handles concurrent invocations safely.
 
+## Inline Plan Intake
+
+ROI natively accepts inline Plan output from Codex, Copilot, Claude Code,
+Cursor, CE, and plain Markdown. Stage skills normalize that text before
+execution instead of making the operator copy steps into ROI fields by hand.
+
+Use the non-persistent helper first:
+
+```bash
+node scripts/lifecycle.mjs plan_normalize '{"stage":"outline","text":"<inline plan text>"}'
+```
+
+`plan_normalize` returns `normalized.plans` in `plan_generate` shape plus a
+`brief_patch`. The invoked stage decides the durable write:
+
+- `roi:clarify` / `roi:brief` records scope, constraints, assumptions, and
+  success criteria through `brief_revise`.
+- `roi:outline` / `roi:plan` passes `normalized.plans` to `plan_generate`
+  after applying normal plan-quality checks.
+- `roi:go` / `roi:drive` must first ensure normalized plans are persisted
+  with `plan_generate`; implementation still runs only from stored ROI
+  plans and records `roi:go` evidence per plan.
+
+Normalization preserves intent and removes host-specific UI/prose wrappers;
+it does not make external Plan text authoritative over ROI gates, helper
+`next_actions`, verification policy, or plan-quality rules.
+If no explicit validation lines are detected, normalized plans carry empty
+`verification_targets` plus `requires_verification_targets: true`; `roi:outline`
+must add runnable targets before persistence.
+
 ## Input dispatch (`roi:go` and `roi:drive`)
 
 Priority order:
@@ -122,9 +152,11 @@ Priority order:
 1. **Mission ID** — if a mission ID is known in context, use it directly.
 2. **Outline JSON** (`roi:go`) — artifact from `plan_generate`; confirm
    via `plan_list`.
-3. **File path** — `.md` / `.txt` brief or requirements; extract goal,
+3. **Inline Plan text** — run `plan_normalize` with the invoked stage,
+   then persist via the stage-owned helper verb before continuing.
+4. **File path** — `.md` / `.txt` brief or requirements; extract goal,
    `mission_create` + `brief_revise` when needed.
-4. **Goal string** — search `mission_list` for a match first.
+5. **Goal string** — search `mission_list` for a match first.
 
 ## Agentic plan strength
 
