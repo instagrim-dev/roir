@@ -36,7 +36,7 @@ ROI v0.1 is intentionally narrow.
 - It is not a hosted control plane.
 - It is not distributed via a remote package registry.
 - It is not production-hardened for high-trust environments.
-- It does not depend on the rest of the BMO codebase at runtime.
+- It does not depend on a broader host workspace at runtime.
 
 ## Audience
 
@@ -52,8 +52,8 @@ ROI is for people who want to:
 
 - Node.js `>=24`
 - pnpm
-- A local checkout of this `roi/` directory, or a private `roi-plugin-*.tgz`
-  handoff tarball
+- A local checkout of this `roi/` directory, or a release
+  `roi-plugin-*.tgz` tarball
 - Optional: Cursor, GitHub Copilot CLI, OpenAI Codex CLI, or Claude Code
   for skill / vocabulary integration
 - Optional: a remote A2A-compatible peer if you want to exercise the remote
@@ -63,7 +63,7 @@ ROI is for people who want to:
 
 Choose the path that matches what you have.
 
-### If You Received A Private Tarball
+### If You Received A Release Tarball
 
 ```bash
 shasum -a 256 -c roi-plugin-0.1.0.tgz.sha256
@@ -213,14 +213,14 @@ required when you open that root in Cursor. To surface the ROI vocabulary
 user-wide in other Cursor projects, run `scripts/install-agent-skills.sh
 cursor-user` (installs the same rule into `~/.cursor/rules/`).
 
-This release documents ROI as a private local-first package. See
+This release documents ROI as a public-source, local-first package. See
 [`docs/installation.md`](./docs/installation.md) for setup and
-[`docs/release-validation.md`](./docs/release-validation.md) for the private
-tarball handoff contract.
+[`docs/release-validation.md`](./docs/release-validation.md) for the tarball
+handoff contract.
 
 ## Documentation
 
-- [`docs/multi-runtime.md`](./docs/multi-runtime.md) — Codex, Claude Code, Cursor, Copilot CLI, generic MCP
+- [`docs/multi-runtime.md`](./docs/multi-runtime.md) — Codex, Claude Code, Cursor, Copilot CLI
 - [`docs/quickstart.md`](./docs/quickstart.md)
 - [`docs/installation.md`](./docs/installation.md)
 - [`docs/release-validation.md`](./docs/release-validation.md)

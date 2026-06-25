@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Private release gate for ROI.
+ * Release gate for ROI.
  *
  * Enforces the contract documented in docs/release-validation.md:
  * - pnpm validation/test/smoke lanes

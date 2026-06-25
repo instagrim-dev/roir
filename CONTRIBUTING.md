@@ -8,7 +8,7 @@ ROI is a self-contained implementation of Reusable Operational Intelligence.
 Changes should preserve that posture:
 
 - keep runtime behavior self-contained under `roi/`
-- avoid introducing dependencies on the broader BMO runtime
+- avoid introducing dependencies on a broader host workspace or runtime
 - document new behavior as clearly as you implement it
 - keep the product language clear and consistent
 
@@ -72,5 +72,5 @@ then update the relevant docs in `README.md` or `docs/` in the same change.
 
 ## Scope Guardrail
 
-Do not turn ROI into a thin wrapper around unrelated BMO internals. This
-package exists to remain understandable on its own.
+Do not turn ROI into a thin wrapper around unrelated host-project internals.
+This package exists to remain understandable on its own.

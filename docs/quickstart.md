@@ -1,6 +1,6 @@
 # ROI Quickstart
 
-This quickstart gets you from a private tarball or checkout to one complete ROI
+This quickstart gets you from a release tarball or checkout to one complete ROI
 mission lifecycle.
 
 > **Coming from Compound Engineering skills?** See the
@@ -17,7 +17,7 @@ mission lifecycle.
 
 ## 1. Prepare The Package
 
-If you received a private handoff tarball:
+If you received a release tarball:
 
 ```bash
 shasum -a 256 -c roi-plugin-0.1.0.tgz.sha256
@@ -34,14 +34,14 @@ pnpm install
 
 ## 2. Validate The Bundle
 
-Run the full private release gate first:
+Run the full release gate first:
 
 ```bash
 pnpm run release:check
 ```
 
 If this fails, fix the environment before proceeding. The ROI package assumes
-the release gate is the baseline integrity check for private handoff.
+the release gate is the baseline integrity check for handoff.
 
 ## 3. Choose A Host
 

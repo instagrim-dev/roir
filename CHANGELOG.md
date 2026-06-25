@@ -17,7 +17,7 @@ the shipped runtime.
 - pin the lifecycle helper (`scripts/lifecycle.mjs`) as the single
   persistence path and expose its 52-verb snake_case registry as the
   canonical wire contract
-- support private tarball handoff with package-root-safe proof handling,
+- support release tarball handoff with package-root-safe proof handling,
   bundled Cursor vocabulary rules, and extracted-package release smoke in
   `pnpm run release:check`
 - document and ship host integration for Codex, Claude Code, Cursor, and
@@ -66,11 +66,12 @@ the shipped runtime.
 ### Docs & packaging
 
 - quickstart, installation, multi-runtime (Codex Tier 1, Claude Code,
-  Cursor, Copilot CLI, generic MCP host), architecture, state-and-artifacts,
+  Cursor, Copilot CLI), architecture, state-and-artifacts,
   command-reference, limitations, troubleshooting, and FAQ docs
 - CE migration guides for Codex, Claude Code, and Copilot CLI
 - OSS hygiene: `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`
-- private local-first distribution via a `roi-plugin-*.tgz` handoff tarball
-  (no remote registry); see [`docs/release-validation.md`](docs/release-validation.md)
+- public-source, local-first distribution via a `roi-plugin-*.tgz` handoff
+  tarball (no remote registry); see
+  [`docs/release-validation.md`](docs/release-validation.md)
 - user-facing terminology aligned on `enlighten` / `enlightenment` for the
   compounding pass (`roi:enlighten` → `roi:learn`)

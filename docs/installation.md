@@ -22,17 +22,17 @@ remote package registry.
 
 | If you have... | Start here |
 |---|---|
-| A private `roi-plugin-*.tgz` handoff | [Private tarball handoff](#private-tarball-handoff) |
+| A release `roi-plugin-*.tgz` tarball | [Release tarball handoff](#release-tarball-handoff) |
 | A local checkout and want a quick backend check | [Verify the lifecycle helper](#verify-the-lifecycle-helper) |
 | Cursor | [Open ROI in Cursor](#open-roi-in-cursor) |
 | GitHub Copilot CLI | [Add ROI to GitHub Copilot CLI](#add-roi-to-github-copilot-cli) |
 | Claude Code | [Install ROI skills into Claude Code](#install-roi-skills-into-claude-code) |
 | OpenAI Codex | [OpenAI Codex CLI / Desktop](#openai-codex-cli--desktop) |
 
-## Private Tarball Handoff
+## Release Tarball Handoff
 
-If you received a private tarball, verify and unpack it before following
-a host setup path:
+If you received a release tarball, verify and unpack it before following a
+host setup path:
 
 ```bash
 shasum -a 256 -c roi-plugin-0.1.0.tgz.sha256
@@ -79,7 +79,7 @@ The lifecycle helper picks this up automatically. See also
 
 Cursor has no skill picker; the ROI command vocabulary is injected into
 every Cursor agent session through `.cursor/rules/roi-commands.mdc`
-(checked in to the BMO workspace root).
+(shipped in the ROI package root).
 
 ### Recommended Cursor Flow
 

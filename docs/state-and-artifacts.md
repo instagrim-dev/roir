@@ -184,10 +184,10 @@ The policy is deliberately simple for v0.1:
 | **Breaking SQL change** | Column removed, primary key changed, table renamed. | **Reset required.** Bump `defaultSchemaVersion` and `ROI_SCHEMA_VERSION` in lockstep, then delete the SQLite files (recipe below). |
 | **Contract-only change** | Zod schema in `contracts.mjs` tightens a field. | Bump `ROI_SCHEMA_VERSION`; existing rows still load if the tightened field is permissive on read. Add a contract test. |
 
-v0.1 ROI is **local-first** and **private**: mission data is reproducible by
-re-running missions, so reset is the supported migration path for breaking
-changes. See [`limitations.md`](./limitations.md#current-constraints) for
-the product-level statement of this constraint.
+v0.1 ROI is **local-first**: mission data is reproducible by re-running
+missions, so reset is the supported migration path for breaking changes. See
+[`limitations.md`](./limitations.md#current-constraints) for the product-level
+statement of this constraint.
 
 ### Future Path
 

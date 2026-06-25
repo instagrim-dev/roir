@@ -1,16 +1,16 @@
 # Release Validation
 
-This document defines what must be true before ROI can be handed to another
-maintainer as a private distributable artifact. It mirrors what
+This document defines what must be true before ROI can be tagged, packaged,
+or handed to another maintainer as a distributable artifact. It mirrors what
 [`scripts/release-check.mjs`](../scripts/release-check.mjs) actually
 executes — keep the two in sync.
 
 ## Publishing Contract
 
-ROI v0.1 is a **private local-first package**, not a public or private
-registry publication.
+ROI v0.1 is a **public-source, local-first package**, not a registry
+publication.
 
-The supported private artifacts are:
+The supported release artifacts are:
 
 - a checked-out `roi/` directory with dependencies installed through `pnpm`
 - a package tarball produced by `pnpm pack --pack-destination <dir>`
@@ -19,12 +19,12 @@ The supported private artifacts are:
 
 `package.json` remains `"private": true` on purpose. That prevents
 accidental registry publication while still allowing `pnpm pack` for
-private handoff and release validation.
+tarball handoff and release validation.
 
 ## Receiving A Tarball
 
-When a maintainer receives `roi-plugin-*.tgz`, they should verify, unpack,
-and run the release gate before wiring any host to the package:
+When a maintainer receives `roi-plugin-*.tgz`, they should verify, unpack, and
+run the release gate before wiring any host to the package:
 
 ```bash
 shasum -a 256 -c roi-plugin-0.1.0.tgz.sha256
@@ -93,7 +93,7 @@ pnpm run release:check
   - `node_modules/`
   - `package-lock.json`
 - The tarball includes the runtime and validation surfaces required for
-  private handoff:
+  handoff:
   - `src/`
   - `skills/`
   - `agents/`
@@ -159,8 +159,8 @@ The test suite must prove:
 
 ### 6. Security And Dependency Validation
 
-`pnpm audit --prod` must report no known vulnerabilities before a
-private package handoff.
+`pnpm audit --prod` must report no known vulnerabilities before a package
+handoff.
 
 If this ever becomes impossible because of an unpatched transitive
 dependency, the release must stop until `SECURITY.md` or release notes
@@ -200,4 +200,4 @@ constraints:
 
 If a release cannot prove bounded package contents, durable state,
 resumability, inspectability, and clean dependency posture, it is not
-yet a credible ROI private release.
+yet a credible ROI release.

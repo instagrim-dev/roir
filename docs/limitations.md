@@ -11,8 +11,10 @@ platform.
   lockstep and deleting `.data/roi.sqlite{,-wal,-shm}`. See
   [`state-and-artifacts.md` → "Schema And Migrations"](./state-and-artifacts.md#schema-and-migrations).
 - The runtime depends on Node's experimental `node:sqlite` API.
-- The package is local-first and currently marked private in `package.json`.
-- The local integration files are documented for local wiring and private
+- The package is local-first. `package.json` remains marked private to prevent
+  accidental registry publishing; public source and tarball release are the
+  supported distribution paths.
+- The local integration files are documented for local wiring and tarball
   handoff, not remote marketplace or registry distribution.
 - A2A support is bounded to task-scoped delegation and local reconciliation.
 - Capability promotion is human-gated.
@@ -55,7 +57,7 @@ Between v0.1.4 and v0.2, all substantive `roi:go` verification rows are
 | Payload shape (`oracles_ok`, diff or paths) | Re-running oracles without `run_oracles: true` |
 | `plan_revision` match | Agent-claimed `oracles_ok` when `run_oracles` is false |
 | Non-empty `oracles_run` when the plan has `verification_targets` | Semantic correctness of touched files |
-| `paths_touched` exist under the workspace root (agent-cli container) | Full CI / remote git proof (D8) |
+| `paths_touched` exist under the active workspace root | Full CI / remote git proof (D8) |
 | **`run_oracles: true` (D7-w1)** — executes `verification_targets`, stores output, sets `verified_by: mcp` (legacy stamp; means helper-verified), rejects vacuous `go test` | D2 agent-backed implement |
 | **`paths_touched` under `bmo/` or `roi/`**, exists on disk (D7-w2) | Porcelain unless `product_tree` set on `evidence_record` |
 | **`product_tree` on `evidence_record`** — porcelain cross-check for listed paths | |
