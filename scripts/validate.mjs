@@ -48,4 +48,19 @@ if (live.length !== expected.length || live.some((n, i) => n !== expected[i])) {
   process.exit(1);
 }
 
+const parityScript = path.join(root, "..", "scripts", "check_plan_intake_fixture_parity.mjs");
+if (fs.existsSync(parityScript)) {
+  try {
+    execFileSync(process.execPath, [parityScript], {
+      cwd: path.join(root, ".."),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (err) {
+    const detail = err.stderr?.toString().trim() || err.stdout?.toString().trim() || err.message;
+    console.error(`validate: plan-intake-fixture-parity failed: ${detail}`);
+    process.exit(1);
+  }
+}
+
 console.log(`validate: ok (${live.length} lifecycle verbs, Node ${process.version})`);
