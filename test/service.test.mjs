@@ -1739,7 +1739,7 @@ test("ROI run_oracles blocks pass when verification_targets fail", (t) => {
   );
 });
 
-test("ROI paths_touched rejects path outside product tree", (t) => {
+test("ROI paths_touched rejects path outside workspace root", (t) => {
   const { service } = createHarness(t);
   const mission = seedMission(service);
   const plan = service.planList({ mission_id: mission.id }).plans[0];
@@ -1760,7 +1760,7 @@ test("ROI paths_touched rejects path outside product tree", (t) => {
           }
         }
       }),
-    /bmo\/ or roi\//
+    /not found on disk/
   );
 });
 

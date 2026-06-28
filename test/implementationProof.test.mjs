@@ -146,15 +146,13 @@ test("resolve product-tree roots supports unpacked package layout", () => {
   }
 });
 
-test("validatePathsTouchedOnDisk requires product-tree prefix", () => {
+test("validatePathsTouchedOnDisk accepts workspace-relative sibling paths", () => {
   const workspaceRoot = defaultRoiWorkspaceRoot();
-  assert.throws(
-    () =>
-      validatePathsTouchedOnDisk(
-        { paths_touched: ["internal/foo.go"] },
-        { workspaceRoot, plan: { actions: ["x"], verification_targets: ["go test ./..."] } }
-      ),
-    /bmo\/ or roi\//
+  assert.doesNotThrow(() =>
+    validatePathsTouchedOnDisk(
+      { paths_touched: ["benchmarks/repairbench/runner.py"] },
+      { workspaceRoot, plan: { actions: ["x"], verification_targets: ["go test ./..."] } }
+    )
   );
   assert.equal(inferProductTreeKey({ verification_targets: ["cd bmo && go test"] }), "bmo");
 });

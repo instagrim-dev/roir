@@ -241,22 +241,18 @@ export function validatePathsTouchedOnDisk(
   for (const touched of paths) {
     const normalized = normalizeRepoRelativePath(touched);
     if (path.isAbsolute(normalized)) {
-      throw new Error(
-        `roi:go verification pass paths_touched must be repo-relative under bmo/ or roi/: ${touched}`
-      );
+      throw new Error(`roi:go verification pass paths_touched must be workspace-relative: ${touched}`);
     }
-    if (!normalized.startsWith("bmo/") && !normalized.startsWith("roi/")) {
-      throw new Error(
-        `roi:go verification pass paths_touched must be under bmo/ or roi/: ${touched}`
-      );
-    }
-    const { treeKey } = splitProductTreePath(normalized);
-    const productRoot = resolveProductTreeRoot(treeKey, root);
-    // Resolve-then-contain: a logical `bmo/`/`roi/` prefix is not sufficient
-    // because `roi/../../etc/passwd` passes startsWith() yet escapes the
-    // selected product root. Require the resolved path to stay within that
-    // product tree root (no `..` traversal).
-    const resolved = resolveTouchedPath(normalized, root);
+    const parts = splitProductTreePath(normalized);
+    const treeKey = parts?.treeKey ?? "";
+    const isKnownProductTree = PRODUCT_TREE_KEYS.has(treeKey);
+    const productRoot = isKnownProductTree ? resolveProductTreeRoot(treeKey, root) : root;
+    // Resolve-then-contain: known product trees keep their rooted containment,
+    // while sibling workspace projects (for example `benchmarks/`) are allowed
+    // as long as they stay inside the workspace root.
+    const resolved = isKnownProductTree
+      ? resolveTouchedPath(normalized, root)
+      : path.resolve(root, normalized);
     const rel = path.relative(productRoot, resolved);
     if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
       throw new Error(
