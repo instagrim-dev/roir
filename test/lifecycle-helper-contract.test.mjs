@@ -81,12 +81,10 @@ test("lifecycle helper drives editorial-loop critical path end to end", async (t
     mission_id: missionId,
     plans: [
       {
-        title: "Editorial seam",
-        summary: "Exercise the helper end-to-end",
-        plan: {
-          actions: ["Stamp helper-driven evidence"],
-          verification_targets: ["Helper round-trip persists state"],
-        },
+        name: "Editorial seam",
+        scope: "Exercise the helper end-to-end",
+        actions: ["Stamp helper-driven evidence"],
+        verification_targets: ["Helper round-trip persists state"],
       },
     ],
   });

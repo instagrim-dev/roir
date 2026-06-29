@@ -163,9 +163,58 @@ test("ROI full verify pass reconciles externally satisfied multi-plan workflow l
   assert.deepEqual(verified.next_actions, ["roi:publish", "roi:learn"]);
   assert.ok(
     service.taskList({ run_id: runResult.run.id }).tasks.every((task) => task.status === TaskStatus.COMPLETED),
-    "full verify pass should close queued workflow ledger tasks once all run plans have substantive roi:go evidence"
+    "full verify pass should close queued workflow ledger tasks through roi:go-backed reconciliation"
   );
+  const reviewTypes = service.reviewList({ run_id: runResult.run.id }).reviews.map((review) => review.review_type);
+  assert.ok(reviewTypes.filter((type) => type === StageKind.SPEC_REVIEW).length >= 2);
+  assert.ok(reviewTypes.filter((type) => type === StageKind.QUALITY_REVIEW).length >= 2);
+  assert.ok(reviewTypes.filter((type) => type === StageKind.VERIFY_GATE).length >= 1);
   assert.deepEqual(service.statusGet({ mission_id: mission.id }).summary.next_actions, ["roi:publish", "roi:learn"]);
+});
+
+test("ROI verifyEvaluate pass reconciles agent handoff with review records before completion", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service, {
+    plan: {
+      name: "Agent handoff",
+      actions: ["implement in host"],
+      verification_targets: ['node -e "process.exit(0)"']
+    }
+  });
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+  const run = (await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: [plan.id],
+    mode: "agent",
+    prompt: "host handoff"
+  })).run;
+
+  assert.equal(run.status, RunStatus.PAUSED);
+  assert.deepEqual(
+    service.taskList({ run_id: run.id }).tasks.map((task) => [task.payload.stage_kind, task.status]),
+    [
+      [StageKind.IMPLEMENT, TaskStatus.INPUT_REQUIRED],
+      [StageKind.SPEC_REVIEW, TaskStatus.QUEUED],
+      [StageKind.QUALITY_REVIEW, TaskStatus.QUEUED],
+      [StageKind.VERIFY_GATE, TaskStatus.QUEUED]
+    ]
+  );
+  recordSubstantiveRoiGo(service, mission.id, plan);
+
+  const verified = service.verifyEvaluate({
+    run_id: run.id,
+    verdict: VerifyVerdict.PASS,
+    notes: "terminal pass must reconcile lane proof"
+  });
+
+  assert.equal(verified.run.status, RunStatus.COMPLETED);
+  assert.ok(service.taskList({ run_id: run.id }).tasks.every((task) => task.status === TaskStatus.COMPLETED));
+  const reviews = service.reviewList({ run_id: run.id }).reviews;
+  assert.ok(reviews.some((review) => review.review_type === StageKind.SPEC_REVIEW));
+  assert.ok(reviews.some((review) => review.review_type === StageKind.QUALITY_REVIEW));
+  assert.ok(reviews.some((review) => review.review_type === StageKind.VERIFY_GATE));
+  const evidence = service.evidenceList({ mission_id: mission.id, run_id: run.id }).evidence;
+  assert.ok(evidence.some((item) => item.source === "roi_go_reconciler" && item.artifact_ref));
 });
 
 test("ROI status_get hides superseded blocking reviews", async (t) => {
@@ -548,11 +597,48 @@ test("ROI convergence publication requires a completed run", (t) => {
       artifact_ref: "docs/no-run.md",
       content: {}
     }),
-    /requires a completed run for publication/
+    /publication evidence requires run_id/
   );
 
   const evidence = service.evidenceList({ mission_id: mission.id }).evidence;
   assert.equal(evidence.filter((item) => item.type === "publication").length, 0);
+});
+
+test("ROI publication evidence requires a completed regular run", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service, {
+    plan: {
+      name: "Publish guard",
+      actions: ["implement before publishing"],
+      verification_targets: ['node -e "process.exit(0)"']
+    }
+  });
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+  const run = (await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: [plan.id],
+    mode: "agent",
+    prompt: "host handoff"
+  })).run;
+
+  assert.equal(run.status, RunStatus.PAUSED);
+  assert.throws(
+    () =>
+      service.evidenceRecord({
+        mission_id: mission.id,
+        run_id: run.id,
+        type: "publication",
+        source: "roi:publish",
+        result: "pass",
+        artifact_ref: "docs/premature.md",
+        content: { summary: "premature publication" }
+      }),
+    /not publishable/
+  );
+  assert.equal(
+    service.evidenceList({ mission_id: mission.id }).evidence.filter((item) => item.type === "publication").length,
+    0
+  );
 });
 
 test("ROI convergence plans cannot be rebound to a different seam on revision", (t) => {

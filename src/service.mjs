@@ -680,6 +680,10 @@ export class ROIService {
       return mutation({ status: "ok", summary: "Quality review evidence recorded" }, { evidence });
     }
 
+    if (["publication", "handoff"].includes(evidenceType)) {
+      this._assertPublicationEvidenceRun({ run, evidenceType });
+    }
+
     let planForProof = null;
     if (source === "roi:go" && evidenceType === "verification") {
       const planId = String(content.plan_id ?? content.planId ?? "").trim();
@@ -1120,6 +1124,11 @@ export class ROIService {
           "verify_evaluate blocked: run_oracles failed one or more verification_targets for run plan(s)"
         );
       }
+    }
+    if (verdict === VerifyVerdict.PASS) {
+      this._reconcileRunTasksBeforeVerifyPass(run, {
+        planIds: partialCheckpoint ? checkpoint.substantive_plan_ids : run.plan_ids
+      });
     }
     if (partialCheckpoint) {
       content.verify_gate = {
@@ -1664,19 +1673,32 @@ export class ROIService {
 
   _completeAgentImplementFromGo(run, task, plan, activation, missionEvidence) {
     const goEvidence = latestRoiGoVerificationByPlan(missionEvidence).get(plan.id);
-    const output = `HOST_IMPLEMENT_COMPLETED\nroi:go evidence ${goEvidence?.id ?? "unknown"}`;
+    return this._completeImplementTaskFromGo(run, task, plan, activation, goEvidence, {
+      outputPrefix: "HOST_IMPLEMENT_COMPLETED",
+      source: "host_agent_executor",
+      events: ["agent_implement_completed_via_roi_go"],
+      implementMode: "host_agent"
+    });
+  }
+
+  _completeImplementTaskFromGo(run, task, plan, activation, goEvidence, options = {}) {
+    if (!goEvidence?.id) {
+      throw new Error(`verify_evaluate(pass) blocked: plan ${plan.id} lacks substantive roi:go evidence`);
+    }
+    const outputPrefix = options.outputPrefix || "IMPLEMENT_COMPLETED_FROM_ROI_GO";
+    const output = `${outputPrefix}\nroi:go evidence ${goEvidence.id}`;
     const evidence = this._insertEvidence({
       mission_id: run.mission_id,
       run_id: run.id,
       type: "execution_output",
-      source: "host_agent_executor",
+      source: options.source || "roi_go_reconciler",
       result: "completed",
       artifact_ref: task.id,
       content: {
         output,
-        implement_mode: "host_agent",
+        implement_mode: options.implementMode || "roi_go_reconciler",
         host_completed: true,
-        roi_go_evidence_id: goEvidence?.id ?? "",
+        roi_go_evidence_id: goEvidence.id,
         plan_id: plan.id,
         capability_id: activation.capability_id,
         declared_verification_targets: plan.verification_targets
@@ -1686,12 +1708,12 @@ export class ROIService {
       mission_id: run.mission_id,
       run_id: run.id,
       task_id: task.id,
-      events: ["agent_implement_completed_via_roi_go"],
+      events: options.events || ["implement_reconciled_from_roi_go"],
       tool_calls: [],
       latency_ms: 0,
       token_usage: {},
       error_signals: [],
-      evaluation_refs: [evidence.id, ...(goEvidence?.id ? [goEvidence.id] : [])]
+      evaluation_refs: [evidence.id, goEvidence.id]
     });
     const completedTask = this._updateTask({
       ...task,
@@ -2120,20 +2142,79 @@ export class ROIService {
   }
 
   _finalizeRunIfDoneAfterFullVerifyPass(runId, basePayload = {}) {
-    for (const task of this._listRunTasks(runId)) {
-      if ([
-        TASK_QUEUED,
-        TASK_RUNNING,
-        TASK_INPUT_REQUIRED,
-        TASK_APPROVAL_REQUIRED,
-        TASK_AUTH_REQUIRED,
-        TASK_WAITING,
-        TASK_PAUSED
-      ].includes(task.status)) {
-        this._updateTask({ ...task, status: TASK_COMPLETED, blocking_reason: "" });
+    return this._finalizeRunIfDone(runId, basePayload);
+  }
+
+  _reconcileRunTasksBeforeVerifyPass(run, { planIds } = {}) {
+    const planFilter = new Set((planIds ?? []).map((id) => String(id).trim()).filter(Boolean));
+    const inPlanScope = (task) => !planFilter.size || planFilter.has(task.plan_id);
+    const isOpen = (task) => [
+      TASK_QUEUED,
+      TASK_RUNNING,
+      TASK_INPUT_REQUIRED,
+      TASK_PAUSED,
+      TASK_WAITING
+    ].includes(task.status);
+
+    while (true) {
+      const tasks = this._listRunTasks(run.id);
+      const openPreVerify = tasks.filter((task) =>
+        inPlanScope(task) &&
+        task.payload?.stage_kind !== StageKind.VERIFY_GATE &&
+        isOpen(task)
+      );
+      if (!openPreVerify.length) {
+        return;
+      }
+
+      let progressed = false;
+      for (const task of openPreVerify) {
+        if (!this._taskDependenciesCompleted(task, tasks)) {
+          continue;
+        }
+        const plan = this._getLatestPlan(task.plan_id);
+        const missionEvidence = this.evidenceList({ mission_id: run.mission_id }).evidence;
+        if (!substantiveRoiGoForPlan(missionEvidence, plan.id, this._listLatestPlans(run.mission_id))) {
+          continue;
+        }
+        const activation = this._getActivation(task.payload.activation_id);
+
+        if (task.payload?.stage_kind === StageKind.IMPLEMENT) {
+          const goEvidence = latestRoiGoVerificationByPlan(missionEvidence).get(plan.id);
+          this._completeImplementTaskFromGo(run, task, plan, activation, goEvidence);
+          progressed = true;
+          continue;
+        }
+
+        if ([StageKind.SPEC_REVIEW, StageKind.QUALITY_REVIEW].includes(task.payload?.stage_kind)) {
+          const result = this._executeReviewStage(run.id, task);
+          if (result.status !== "ok") {
+            throw new Error(
+              `verify_evaluate(pass) blocked: ${task.payload.stage_kind} did not pass for plan ${plan.id}`
+            );
+          }
+          progressed = true;
+        }
+      }
+
+      if (!progressed) {
+        const blocked = openPreVerify
+          .map((task) => `${task.payload?.stage_kind || task.kind}:${task.plan_id}:${task.status}`)
+          .join(", ");
+        throw new Error(
+          `verify_evaluate(pass) blocked: run has open pre-verify workflow task(s): ${blocked}`
+        );
       }
     }
-    return this._finalizeRunIfDone(runId, basePayload);
+  }
+
+  _taskDependenciesCompleted(task, tasks) {
+    const deps = Array.isArray(task.payload?.depends_on_task_ids) ? task.payload.depends_on_task_ids : [];
+    if (!deps.length) {
+      return true;
+    }
+    const byId = new Map(tasks.map((candidate) => [candidate.id, candidate]));
+    return deps.every((depId) => byId.get(depId)?.status === TASK_COMPLETED);
   }
 
   _buildStageTasks({ mission, plan, run, activation, capability, contextPack, input, mode }) {
@@ -2917,6 +2998,27 @@ export class ROIService {
       throw new Error(`convergence mission ${controller.mission_id} may only publish active seam ${controller.active_seam_id}`);
     }
     return plan;
+  }
+
+  _assertPublicationEvidenceRun({ run, evidenceType }) {
+    if (!run) {
+      throw new Error(`${evidenceType} evidence requires run_id`);
+    }
+    if (run.status === RUN_COMPLETED) {
+      return;
+    }
+    if (evidenceType === "handoff" && this._runHasPassingVerifyEvidence(run.id)) {
+      return;
+    }
+    throw new Error(`run ${run.id} is not publishable`);
+  }
+
+  _runHasPassingVerifyEvidence(runId) {
+    return this.evidenceList({ run_id: runId, mission_id: this._getRun(runId).mission_id }).evidence.some((evidence) =>
+      evidence.source === "verify.evaluate" &&
+      evidence.type === "verification" &&
+      String(evidence.result ?? "").trim().toLowerCase() === VerifyVerdict.PASS
+    );
   }
 
   _updateRun(run) {
