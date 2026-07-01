@@ -176,7 +176,16 @@ use wave-only selection while ignoring `dependencies`).
    plan_revise round-trip mid-execution. Catching it before the
    `evidence_record(run_oracles: true)` call keeps the implementation
    commit, the evidence row, and the plan revision aligned in one pass.
-4. For each plan, in order:
+4. **Pre-execution source-contract audit.** If a target plan has
+   `requires_source_contract_check: true` or non-empty `source_contract_refs`,
+   read the referenced source artifact(s) before editing. Build a coverage
+   list that maps each load-bearing source requirement to either a
+   `verification_targets` entry or a manual-review proof artifact. If the
+   plan's targets are too weak to cover the source contract, or if a
+   coverage row would cite a target string that is not already present in the
+   plan's `verification_targets`, call `plan_revise` before implementing; do
+   not defer the mismatch to `roi:verify`.
+5. For each plan, in order:
    - Implement `actions` in the product repo (minimal diff, match
      conventions).
    - Run every `verification_targets` entry (shell commands, builds,
@@ -209,7 +218,17 @@ use wave-only selection while ignoring `dependencies`).
            "oracles_ok": true,
            "diff_stat": "<from `git diff --stat`>",
            "paths_touched": ["bmo/internal/ops/ops.go", "..."],
-           "oracles_run": ["go build ./...", "..."]
+           "oracles_run": [{"cmd":"go build ./...","ok":true}],
+           "source_contract": {
+             "source_refs": ["docs/plans/source-roadmap.md"],
+             "coverage": [
+               {
+                 "requirement": "Inventory includes public_url and task_path fields",
+                 "disposition": "verification_target",
+                 "verification_target": "node scripts/check-inventory-contract.mjs"
+               }
+             ]
+           }
          },
          "summary": "<one paragraph>"
        },
@@ -229,6 +248,7 @@ Required for every `evidence_record` with `result: pass`:
 | **Oracles OK** | Set `implementation_proof.oracles_ok: true` only when all `verification_targets` executed; no `[no tests to run]`; tests that add behavior must have ≥1 matching test case |
 | **Actions reflected** | Non-empty product-tree `git diff` (or staged diff) **or** explicit `paths_touched` for files created/edited this session — unless the plan scope is verify-only with no implementation actions |
 | **Payload** | `content.implementation_proof` records `oracles_ok`, `diff_stat`, `paths_touched`, `oracles_run` |
+| **Source contract** | When the plan has `requires_source_contract_check: true` or `source_contract_refs`, include `implementation_proof.source_contract.source_refs` and `coverage[]`; `source_refs` must include every plan `source_contract_refs` path, and each `verification_target` row must exactly match one plan `verification_targets` entry; use `manual_review` or `not_applicable` with proof/reason when no persisted target covers the requirement |
 | **Verify-only** | Set `verify_only_plan: true` only when the plan has **no** `actions`; the helper rejects the flag when actions exist |
 | **Honesty** | Without `run_oracles`, `oracles_ok: true` means you ran every target in this session (agent-claimed). With `run_oracles: true`, the helper runs targets and owns `oracles_ok` / `oracles_run`. |
 | **Trust** | Default pass is **agent-claimed** (`implementation_proof_trust: agent_claimed`). Pass `run_oracles: true` on `evidence_record` for **helper-verified** (`verified_by: mcp`, legacy stamp). |

@@ -31,7 +31,9 @@ covers outcome strength, binding altitude, and property-style verification.
    after applying this skill's quality checks.
 3. **Optional source artifact** — a CE plan, maturity requirements doc, or
    convergence seam manifest. When present, **import** constraints and
-   properties from it; do not re-scope in ROI.
+   properties from it; do not re-scope in ROI. If its acceptance bullets
+   must survive execution, mark affected plans with `source_contract_refs`
+   and `requires_source_contract_check: true`.
 4. **Optional plans array** — when the operator already has a draft plan
    structure, pass it directly to `plan_generate`.
 
@@ -183,7 +185,30 @@ covers outcome strength, binding altitude, and property-style verification.
    returned with `requires_verification_targets: true`, add runnable targets
    before persistence; do not persist prose placeholders as oracles.
 
-6. Compose the plans. Each plan is an object:
+6. **Preserve source contracts.** If any plan is derived from a CE plan,
+   roadmap, doctrine, requirements file, or other source artifact whose
+   acceptance bullets define success, the source contract must remain
+   visible in ROI instead of being flattened into vague actions.
+
+   For each affected plan:
+
+   - Add `source_contract_refs` with the source artifact path(s).
+   - Set `requires_source_contract_check: true`.
+   - For every load-bearing source requirement, create either:
+     - a runnable `verification_targets` entry that fails when that
+       requirement is absent or weakened, or
+     - an explicit manual-review obligation that `roi:go` can cite in
+       `implementation_proof.source_contract.coverage`.
+   - Ensure any future `coverage[].verification_target` value can exactly
+     match one persisted `verification_targets` entry; do not invent proof
+     commands later in `roi:go`.
+
+   Do not let broad existence checks ("file exists", "row count is nonzero",
+   "keyword appears") replace field-level or behavior-level source
+   requirements. If a requirement cannot be made runnable, keep it as manual
+   proof with a named artifact and reader job.
+
+7. Compose the plans. Each plan is an object:
 
    ```json
    {
@@ -198,6 +223,8 @@ covers outcome strength, binding altitude, and property-style verification.
        "cd bmo && go build ./...",
        "cd bmo && rg -l 'internal/ui/ops' --type go | head -1"
      ],
+     "source_contract_refs": [],
+     "requires_source_contract_check": false,
      "dependencies": [],
      "wave": 1
    }
@@ -214,7 +241,7 @@ covers outcome strength, binding altitude, and property-style verification.
    call `plan_revise` after the fact to wire dependencies once all UUIDs
    exist.
 
-7. Persist:
+8. Persist:
 
    ```bash
    node roi/scripts/lifecycle.mjs plan_generate '<json>'
@@ -223,13 +250,13 @@ covers outcome strength, binding altitude, and property-style verification.
    `<json>` is `{"mission_id": "<id>", "plans": [<plan>, ...]}`. Output
    echoes the generated plan UUIDs and revisions.
 
-8. Confirm storage:
+9. Confirm storage:
 
    ```bash
    node roi/scripts/lifecycle.mjs plan_list '{"mission_id":"<id>"}'
    ```
 
-9. If a plan needs adjustment after generation, use:
+10. If a plan needs adjustment after generation, use:
 
    ```bash
    node roi/scripts/lifecycle.mjs plan_revise '<json>'

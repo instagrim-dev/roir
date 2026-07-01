@@ -71,6 +71,36 @@ test("ROI plan generation writes routing decisions and stamps workflow metadata"
   assert.match(route.reason, /mission:debug|plan:fix|plan:trace/);
 });
 
+test("ROI plan generation persists source-contract requirements", (t) => {
+  const { service } = createHarness(t);
+  const mission = service.missionCreate({
+    title: "Roadmap-derived docs work",
+    goal: "Preserve roadmap acceptance criteria through ROI execution"
+  }).mission;
+  service.briefRevise({
+    mission_id: mission.id,
+    success_criteria: ["Roadmap contract remains represented in proof"]
+  });
+  const plan = service.planGenerate({
+    mission_id: mission.id,
+    plans: [
+      {
+        name: "Selector inventory contract",
+        actions: ["Update selector inventory"],
+        verification_targets: ["node -e \"process.exit(0)\""],
+        source_contract_refs: ["docs/plans/2026-06-30-013-refactor-docs-iteration-roadmap-plan.md"],
+        requires_source_contract_check: true
+      }
+    ]
+  }).plans[0];
+
+  assert.deepEqual(plan.source_contract_refs, [
+    "docs/plans/2026-06-30-013-refactor-docs-iteration-roadmap-plan.md"
+  ]);
+  assert.equal(plan.requires_source_contract_check, true);
+  assert.deepEqual(service.planList({ mission_id: mission.id }).plans[0].source_contract_refs, plan.source_contract_refs);
+});
+
 test("ROI run expands one plan into staged workflow and completes after verify", async (t) => {
   const { service } = createHarness(t);
   const mission = seedMission(service);
@@ -114,6 +144,84 @@ test("ROI run expands one plan into staged workflow and completes after verify",
   assert.equal(verified.run.status, RunStatus.COMPLETED);
   const finalTasks = service.taskList({ run_id: runResult.run.id }).tasks;
   assert.ok(finalTasks.every((task) => task.status === TaskStatus.COMPLETED));
+});
+
+test("ROI evidence_record requires source-contract proof before verify can complete source-derived plans", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service, {
+    title: "Source contract mission",
+    goal: "Implement a roadmap-derived plan without weakening it",
+    plan: {
+      name: "Roadmap contract plan",
+      actions: ["Preserve roadmap fields"],
+      verification_targets: ["node -e \"process.exit(0)\""],
+      source_contract_refs: ["docs/plans/source-roadmap.md"],
+      requires_source_contract_check: true
+    }
+  });
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+  const run = (await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: [plan.id],
+    mode: "agent",
+    prompt: "host handoff"
+  })).run;
+
+  assert.throws(
+    () =>
+      service.evidenceRecord({
+        mission_id: mission.id,
+        type: "verification",
+        source: "roi:go",
+        result: "pass",
+        content: {
+          plan_id: plan.id,
+          plan_revision: plan.revision,
+          implementation_proof: {
+            oracles_ok: true,
+            diff_stat: "roi/src/service.mjs | 1 +",
+            paths_touched: ["roi/src/service.mjs"],
+            oracles_run: [{ cmd: plan.verification_targets[0], ok: true }]
+          }
+        }
+      }),
+    /source contract coverage/
+  );
+  assert.equal(service.statusGet({ mission_id: mission.id }).summary.mission_go_progress.complete, false);
+
+  service.evidenceRecord({
+    mission_id: mission.id,
+    type: "verification",
+    source: "roi:go",
+    result: "pass",
+    content: {
+      plan_id: plan.id,
+      plan_revision: plan.revision,
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "roi/src/service.mjs | 1 +",
+        paths_touched: ["roi/src/service.mjs"],
+        oracles_run: [{ cmd: plan.verification_targets[0], ok: true }],
+        source_contract: {
+          source_refs: ["docs/plans/source-roadmap.md"],
+          coverage: [
+            {
+              requirement: "Roadmap field-level acceptance criteria remain represented",
+              disposition: "verification_target",
+              verification_target: plan.verification_targets[0]
+            }
+          ]
+        }
+      }
+    }
+  });
+
+  const verified = service.verifyEvaluate({
+    run_id: run.id,
+    verdict: VerifyVerdict.PASS,
+    notes: "Source contract coverage and oracle proof are present"
+  });
+  assert.equal(verified.run.status, RunStatus.COMPLETED);
 });
 
 test("ROI full verify pass reconciles externally satisfied multi-plan workflow ledger", async (t) => {

@@ -101,6 +101,8 @@ const seamPlanDraftSchema = z.object({
   actions: z.array(z.string()).optional(),
   dependencies: z.array(z.string()).optional(),
   verification_targets: z.array(z.string()).optional(),
+  source_contract_refs: z.array(z.string()).optional(),
+  requires_source_contract_check: z.boolean().optional(),
   status: z.string().optional(),
   wave: z.number().optional()
 });
@@ -177,6 +179,8 @@ export const PlanSchema = z.object({
   actions: stringArray,
   dependencies: stringArray,
   verification_targets: stringArray,
+  source_contract_refs: stringArray,
+  requires_source_contract_check: z.boolean().default(false),
   capability_id: z.string().default(""),
   workflow_template_ref: z.string().default(""),
   workflow_template: stageArray,
@@ -435,6 +439,8 @@ export const ToolSchemas = Object.freeze({
       actions: z.array(z.string()).optional(),
       dependencies: z.array(z.string()).optional(),
       verification_targets: z.array(z.string()).optional(),
+      source_contract_refs: z.array(z.string()).optional(),
+      requires_source_contract_check: z.boolean().optional(),
       status: z.string().optional(),
       wave: z.number().optional(),
       convergence_seam_id: z.string().optional()
@@ -451,6 +457,8 @@ export const ToolSchemas = Object.freeze({
     actions: z.array(z.string()).optional(),
     dependencies: z.array(z.string()).optional(),
     verification_targets: z.array(z.string()).optional(),
+    source_contract_refs: z.array(z.string()).optional(),
+    requires_source_contract_check: z.boolean().optional(),
     status: z.string().optional(),
     wave: z.number().optional(),
     convergence_seam_id: z.string().optional()

@@ -96,6 +96,11 @@ produced.
 Substantive work evidence uses `source: roi:go`, `type: verification`, and a
 `content.implementation_proof` object. The lifecycle helper stamps
 `content.plan_revision` from the latest plan row when `plan_id` is set.
+When a plan has `requires_source_contract_check: true` or non-empty
+`source_contract_refs`, the same proof object must include
+`source_contract.source_refs` and `coverage[]`. The source refs must include
+the plan refs, and `verification_target` coverage rows must cite persisted plan
+targets; otherwise the helper does not count the row as substantive.
 
 `status_get` (mission scope) also exposes:
 

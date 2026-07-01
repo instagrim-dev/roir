@@ -355,6 +355,8 @@ export class ROIService {
           actions: [brief?.problem || mission.goal],
           dependencies: [],
           verification_targets: brief?.success_criteria?.length ? brief.success_criteria : ["Deliver the mission goal"],
+          source_contract_refs: [],
+          requires_source_contract_check: false,
           wave: 1
         }];
 
@@ -371,6 +373,8 @@ export class ROIService {
         actions: asArray(requestedPlan.actions),
         dependencies: asArray(requestedPlan.dependencies),
         verification_targets: asArray(requestedPlan.verification_targets),
+        source_contract_refs: asArray(requestedPlan.source_contract_refs),
+        requires_source_contract_check: Boolean(requestedPlan.requires_source_contract_check),
         status: requestedPlan.status?.trim() || "planned",
         wave: Number(requestedPlan.wave ?? index + 1)
       };
@@ -422,6 +426,8 @@ export class ROIService {
       actions: input.actions ?? current.actions,
       dependencies: input.dependencies ?? current.dependencies,
       verification_targets: input.verification_targets ?? current.verification_targets,
+      source_contract_refs: input.source_contract_refs ?? current.source_contract_refs,
+      requires_source_contract_check: input.requires_source_contract_check ?? current.requires_source_contract_check,
       convergence_seam_id: input.convergence_seam_id ?? current.convergence_seam_id,
       status: input.status ?? current.status,
       wave: Number(input.wave ?? current.wave)
@@ -2447,6 +2453,8 @@ export class ROIService {
         actions: asArray(planDraft.actions).length ? asArray(planDraft.actions) : [seamInput.summary?.trim() || seamInput.title.trim()],
         dependencies: asArray(planDraft.dependencies),
         verification_targets: asArray(planDraft.verification_targets),
+        source_contract_refs: asArray(planDraft.source_contract_refs),
+        requires_source_contract_check: Boolean(planDraft.requires_source_contract_check),
         status: planDraft.status?.trim() || "planned",
         wave: Number(planDraft.wave ?? index + 1),
         convergence_seam_id: seamId
@@ -2832,6 +2840,8 @@ export class ROIService {
       actions: asArray(data.actions),
       dependencies: asArray(data.dependencies),
       verification_targets: asArray(data.verification_targets),
+      source_contract_refs: asArray(data.source_contract_refs),
+      requires_source_contract_check: Boolean(data.requires_source_contract_check),
       capability_id: data.capability_id ?? "",
       workflow_template_ref: data.workflow_template_ref ?? "",
       workflow_template: asStageArray(data.workflow_template, DEFAULT_WORKFLOW_TEMPLATE),
@@ -3553,6 +3563,8 @@ function parseMissionRow(row) {
 function parsePlan(plan) {
   return {
     ...plan,
+    source_contract_refs: asArray(plan.source_contract_refs),
+    requires_source_contract_check: Boolean(plan.requires_source_contract_check),
     convergence_seam_id: plan.convergence_seam_id || ""
   };
 }

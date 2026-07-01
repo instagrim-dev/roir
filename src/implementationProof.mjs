@@ -53,6 +53,91 @@ export function evidenceMatchesPlanRevision(evidence, plan) {
   return evidenceRev === planRev;
 }
 
+function normalizeStringArray(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }
+  const text = String(value ?? "").trim();
+  return text ? [text] : [];
+}
+
+function asPlainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+export function planRequiresSourceContractCheck(plan) {
+  return (
+    plan?.requires_source_contract_check === true ||
+    normalizeStringArray(plan?.source_contract_refs).length > 0
+  );
+}
+
+function sourceContractCoverageIssue(input, plan = null) {
+  if (!planRequiresSourceContractCheck(plan)) {
+    return "";
+  }
+  const content = asPlainObject(input?.content ?? input);
+  const proof = asPlainObject(content.implementation_proof);
+  const sourceContract = asPlainObject(proof.source_contract ?? content.source_contract);
+  if (!Object.keys(sourceContract).length) {
+    return "missing implementation_proof.source_contract";
+  }
+  const sourceRefs = normalizeStringArray(sourceContract.source_refs ?? sourceContract.source_contract_refs);
+  if (!sourceRefs.length) {
+    return "source_contract.source_refs is empty";
+  }
+  const planSourceRefs = normalizeStringArray(plan?.source_contract_refs);
+  const missingSourceRefs = planSourceRefs.filter((ref) => !sourceRefs.includes(ref));
+  if (missingSourceRefs.length > 0) {
+    return `source_contract.source_refs does not include plan.source_contract_refs: ${missingSourceRefs.join(", ")}`;
+  }
+  const planTargets = normalizeStringArray(plan?.verification_targets);
+  const coverage = Array.isArray(sourceContract.coverage) ? sourceContract.coverage : [];
+  if (!coverage.length) {
+    return "source_contract.coverage is empty";
+  }
+  for (const [index, entry] of coverage.entries()) {
+    const row = asPlainObject(entry);
+    const requirement = String(row.requirement ?? row.source_requirement ?? "").trim();
+    const disposition = String(row.disposition ?? "").trim();
+    if (!requirement) {
+      return `source_contract.coverage[${index}] is missing requirement`;
+    }
+    if (!["verification_target", "manual_review", "not_applicable"].includes(disposition)) {
+      return `source_contract.coverage[${index}] has invalid disposition`;
+    }
+    if (disposition === "verification_target") {
+      const target = String(row.verification_target ?? row.oracle ?? "").trim();
+      if (!target) {
+        return `source_contract.coverage[${index}] is missing verification_target`;
+      }
+      if (!planTargets.length) {
+        return `source_contract.coverage[${index}] uses verification_target but plan.verification_targets is empty`;
+      }
+      if (!planTargets.includes(target)) {
+        return `source_contract.coverage[${index}] verification_target is not in plan.verification_targets`;
+      }
+    }
+    if (disposition === "manual_review") {
+      const proofRef = String(row.evidence ?? row.proof ?? "").trim();
+      if (!proofRef) {
+        return `source_contract.coverage[${index}] is missing evidence`;
+      }
+    }
+    if (disposition === "not_applicable") {
+      const reason = String(row.reason ?? "").trim();
+      if (!reason) {
+        return `source_contract.coverage[${index}] is missing reason`;
+      }
+    }
+  }
+  return "";
+}
+
+export function sourceContractCoveragePresent(input, plan = null) {
+  return !sourceContractCoverageIssue(input, plan);
+}
+
 /** Workspace root for agent-cli container (parent of `roi/`). */
 export function defaultRoiWorkspaceRoot() {
   const packageRoot = defaultRoiPackageRoot();
@@ -347,6 +432,10 @@ export function validateRoiGoVerificationPass(input, { plan } = {}, options = {}
     if (targets.length > 0 && proof.oracles_ok !== true) {
       throw new Error("roi:go verify-only pass requires implementation_proof.oracles_ok: true");
     }
+    const sourceContractIssue = sourceContractCoverageIssue({ content }, plan);
+    if (sourceContractIssue) {
+      throw new Error(`roi:go verification pass requires source contract coverage: ${sourceContractIssue}`);
+    }
     return;
   }
 
@@ -368,6 +457,11 @@ export function validateRoiGoVerificationPass(input, { plan } = {}, options = {}
     throw new Error(
       "roi:go verification pass requires non-empty implementation_proof.oracles_run when plan has verification_targets"
     );
+  }
+
+  const sourceContractIssue = sourceContractCoverageIssue({ content }, plan);
+  if (sourceContractIssue) {
+    throw new Error(`roi:go verification pass requires source contract coverage: ${sourceContractIssue}`);
   }
 
   validatePathsTouchedOnDisk(proof, {
@@ -543,6 +637,9 @@ export function isSubstantiveRoiGoVerification(evidence, plan = null, options = 
     if (targets.length > 0 && proof.oracles_ok !== true) {
       return false;
     }
+    if (!sourceContractCoveragePresent(evidence, plan)) {
+      return false;
+    }
     return true;
   }
 
@@ -559,7 +656,10 @@ export function isSubstantiveRoiGoVerification(evidence, plan = null, options = 
   const paths = Array.isArray(proof.paths_touched)
     ? proof.paths_touched.filter((p) => String(p).trim())
     : [];
-  return Boolean(diffStat || paths.length);
+  if (!diffStat && paths.length === 0) {
+    return false;
+  }
+  return sourceContractCoveragePresent(evidence, plan);
 }
 
 export function planDependenciesMet(plan, plans, evidenceList, options = {}) {
@@ -667,6 +767,8 @@ export function missionGoProgress(plans, evidenceList, options = {}) {
       reason = "stale_plan_revision";
     } else if (String(latest.result ?? "").toLowerCase() === "fail") {
       reason = "verification_fail";
+    } else if (!sourceContractCoveragePresent(latest, plan)) {
+      reason = "source_contract_not_represented";
     }
     open.push({
       plan_id: plan.id,

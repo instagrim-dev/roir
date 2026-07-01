@@ -53,10 +53,19 @@ the plan." Read
    proof as **not substantive** — the verdict should be `partial` or `fail`,
    not `pass`.
 
-4. Form an explicit verdict and write reasoning into `notes`. The notes
+4. For each source-derived plan (`requires_source_contract_check: true` or
+   non-empty `source_contract_refs`), confirm the latest passing `roi:go`
+   row includes `implementation_proof.source_contract.source_refs` and
+   `coverage[]`. Each coverage row must name the source requirement and map
+   it to `verification_target`, `manual_review`, or `not_applicable` with
+   proof or reason. `source_refs` must include the plan's `source_contract_refs`,
+   and `verification_target` rows must cite an actual plan target. Treat missing
+   or mismatched coverage as **not substantive** even when oracles passed.
+
+5. Form an explicit verdict and write reasoning into `notes`. The notes
    field is the durable record of why this verdict was recorded.
 
-5. Persist:
+6. Persist:
 
    ```bash
    node roi/scripts/lifecycle.mjs verify_evaluate '<json>'

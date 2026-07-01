@@ -215,6 +215,13 @@ agent_claimed`). Pass **`run_oracles: true`** on `evidence_record` (with
 `paths_touched` must use logical `bmo/` or `roi/` prefixes and resolve to
 real files in the active workspace / package layout; set
 **`product_tree`** (`bmo`|`roi`) for an optional git porcelain cross-check.
+For plans with `requires_source_contract_check: true` or non-empty
+`source_contract_refs`, passing `roi:go` evidence must also include
+`implementation_proof.source_contract.source_refs` and `coverage[]` rows
+that map each source requirement to a verification target, manual-review
+proof, or explicit not-applicable reason. `source_refs` must include every
+plan `source_contract_refs` path, and `verification_target` coverage rows must
+exactly match persisted plan `verification_targets`.
 At verify gate, pass **`require_verified_proof: true`** on
 `verify_evaluate` to require `mcp_verified` go evidence for the run's
 plans (default false), or **`run_oracles: true`** to have the helper run

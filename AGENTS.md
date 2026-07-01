@@ -173,6 +173,47 @@ applies to `roi:clarify`, `roi:outline`, `roi:plan`, `roi:draft`,
 **Pairing:** CE plan / requirements own *what must remain true*; ROI owns
 *waves, verify gate, and evidence*.
 
+## Source Contract Preservation
+
+When a mission is derived from a roadmap, CE plan, doctrine, requirements
+brief, or other source artifact whose acceptance bullets must survive
+execution, `roi:outline` must preserve that source explicitly:
+
+- Set `source_contract_refs` on each affected plan to the source artifact
+  path(s).
+- Set `requires_source_contract_check: true`.
+- Convert every load-bearing source requirement into either a runnable
+  `verification_targets` entry or an explicit manual-review obligation.
+
+For those marked plans, `roi:go` evidence with `result: pass` must include
+`content.implementation_proof.source_contract`:
+
+```json
+{
+  "source_refs": ["docs/plans/source-roadmap.md"],
+  "coverage": [
+    {
+      "requirement": "Inventory includes public_url and task_path fields",
+      "disposition": "verification_target",
+      "verification_target": "node scripts/check-inventory-contract.mjs"
+    },
+    {
+      "requirement": "Ledger names the approval artifact for scenario-deepening rows",
+      "disposition": "manual_review",
+      "evidence": "docs/audits/selector-decision-ledger.md"
+    }
+  ]
+}
+```
+
+The helper rejects a passing `roi:go` evidence row for marked plans when this
+coverage is missing or malformed. The evidence `source_refs` must include every
+path in the plan's `source_contract_refs`, and each `verification_target`
+coverage row must exactly match one entry in the plan's `verification_targets`.
+If a requirement cannot be covered by a plan target, use `manual_review` or
+`not_applicable` with evidence or reason instead. `mission_go_progress` and
+`roi:verify` keep the plan open until source-contract coverage exists.
+
 ## Notes
 
 - The lifecycle helper is the only persistence path. There is no MCP

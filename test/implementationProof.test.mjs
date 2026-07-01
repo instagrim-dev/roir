@@ -98,6 +98,158 @@ test("validateRoiGoVerificationPass requires oracles_run when plan has verificat
   );
 });
 
+test("validateRoiGoVerificationPass requires source contract coverage for source-derived plans", () => {
+  const plan = {
+    id: "plan_contract",
+    actions: ["implement source contract"],
+    verification_targets: ["node scripts/check-inventory-contract.mjs"],
+    source_contract_refs: ["docs/plans/source-roadmap.md"],
+    requires_source_contract_check: true
+  };
+  assert.throws(
+    () =>
+      validateRoiGoVerificationPass(
+        {
+          source: "roi:go",
+          type: "verification",
+          result: "pass",
+          content: {
+            plan_id: "plan_contract",
+            implementation_proof: {
+              oracles_ok: true,
+              diff_stat: "roi/src/service.mjs | 2 ++",
+              oracles_run: [{ cmd: "node scripts/check-inventory-contract.mjs", ok: true }]
+            }
+          }
+        },
+        { plan }
+    ),
+    /source contract coverage/
+  );
+  assert.throws(
+    () =>
+      validateRoiGoVerificationPass(
+        {
+          source: "roi:go",
+          type: "verification",
+          result: "pass",
+          content: {
+            plan_id: "plan_contract",
+            implementation_proof: {
+              oracles_ok: true,
+              diff_stat: "roi/src/service.mjs | 2 ++",
+              oracles_run: [{ cmd: "node scripts/check-inventory-contract.mjs", ok: true }],
+              source_contract: {
+                source_refs: ["docs/plans/unrelated-roadmap.md"],
+                coverage: [
+                  {
+                    requirement: "U3 inventory names public_url and task path fields",
+                    disposition: "verification_target",
+                    verification_target: "node scripts/check-inventory-contract.mjs"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        { plan }
+      ),
+    /does not include plan\.source_contract_refs/
+  );
+  assert.throws(
+    () =>
+      validateRoiGoVerificationPass(
+        {
+          source: "roi:go",
+          type: "verification",
+          result: "pass",
+          content: {
+            plan_id: "plan_contract",
+            implementation_proof: {
+              oracles_ok: true,
+              diff_stat: "roi/src/service.mjs | 2 ++",
+              oracles_run: [{ cmd: "node scripts/check-inventory-contract.mjs", ok: true }],
+              source_contract: {
+                source_refs: ["docs/plans/source-roadmap.md"],
+                coverage: [
+                  {
+                    requirement: "U3 inventory names public_url and task path fields",
+                    disposition: "verification_target",
+                    verification_target: "node scripts/not-a-plan-target.mjs"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        { plan }
+      ),
+    /not in plan\.verification_targets/
+  );
+  assert.throws(
+    () =>
+      validateRoiGoVerificationPass(
+        {
+          source: "roi:go",
+          type: "verification",
+          result: "pass",
+          content: {
+            plan_id: "plan_contract",
+            implementation_proof: {
+              oracles_ok: true,
+              diff_stat: "roi/src/service.mjs | 2 ++",
+              source_contract: {
+                source_refs: ["docs/plans/source-roadmap.md"],
+                coverage: [
+                  {
+                    requirement: "U3 inventory names public_url and task path fields",
+                    disposition: "verification_target",
+                    verification_target: "node scripts/check-inventory-contract.mjs"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        { plan: { ...plan, verification_targets: [] } }
+      ),
+    /plan\.verification_targets is empty/
+  );
+  assert.doesNotThrow(() =>
+    validateRoiGoVerificationPass(
+      {
+        source: "roi:go",
+        type: "verification",
+        result: "pass",
+        content: {
+          plan_id: "plan_contract",
+          implementation_proof: {
+            oracles_ok: true,
+            diff_stat: "roi/src/service.mjs | 2 ++",
+            oracles_run: [{ cmd: "node scripts/check-inventory-contract.mjs", ok: true }],
+            source_contract: {
+              source_refs: ["docs/plans/source-roadmap.md"],
+              coverage: [
+                {
+                  requirement: "U3 inventory names public_url and task path fields",
+                  disposition: "verification_target",
+                  verification_target: "node scripts/check-inventory-contract.mjs"
+                },
+                {
+                  requirement: "U4 ledger explains manual-debt blocker",
+                  disposition: "manual_review",
+                  evidence: "docs/audits/selector-decision-ledger.md"
+                }
+              ]
+            }
+          }
+        }
+      },
+      { plan }
+    )
+  );
+});
+
 test("validatePathsTouchedOnDisk rejects missing paths under workspace root", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-paths-"));
   try {
@@ -472,6 +624,35 @@ test("missionGoProgress tracks open plans and completion", () => {
   assert.equal(progress.substantive, 1);
   assert.equal(progress.complete, false);
   assert.equal(progress.open[0].plan_id, "p2");
+});
+
+test("missionGoProgress keeps source-derived plans open without source contract coverage", () => {
+  const plans = [
+    {
+      id: "p1",
+      wave: 1,
+      actions: ["a"],
+      verification_targets: ["t"],
+      source_contract_refs: ["docs/plans/source-roadmap.md"],
+      requires_source_contract_check: true
+    }
+  ];
+  const evidence = [
+    {
+      source: "roi:go",
+      type: "verification",
+      result: "pass",
+      created_at: "2026-06-30T05:00:00.000Z",
+      content: {
+        plan_id: "p1",
+        implementation_proof: { oracles_ok: true, diff_stat: "p1 | 1 +" }
+      }
+    }
+  ];
+  const progress = missionGoProgress(plans, evidence);
+  assert.equal(progress.substantive, 0);
+  assert.equal(progress.complete, false);
+  assert.equal(progress.open[0].reason, "source_contract_not_represented");
 });
 
 test("substantiveRoiGoForPlan and filterReviewBlockingIssues bridge stub reviews", () => {
