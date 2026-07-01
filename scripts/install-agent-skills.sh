@@ -265,6 +265,8 @@ MARKETPLACE_JSON
       log "Plugin enable entry already present in $CODEX_CFG"
     fi
     log "Codex: roi plugin registered."
+    log "Codex payload path: $PLUGIN_DIR"
+    log "Codex marketplace path: $MARKETPLACE_ROOT/.agents/plugins/marketplace.json"
     log "  Next: open Codex app → Settings → Plugins → find ROI → click Install"
     log "  Then restart Codex to pick up \$roi-drive, \$roi-go in the skill picker."
   else
@@ -272,6 +274,8 @@ MARKETPLACE_JSON
     log "DRY-RUN: would create $MARKETPLACE_ROOT/.agents/plugins/marketplace.json"
     log "DRY-RUN: would symlink skills into $PLUGIN_DIR/skills/"
     log "DRY-RUN: would append marketplace + plugin entries to $CODEX_CFG"
+    log "DRY-RUN: inspect Codex payload path $PLUGIN_DIR"
+    log "DRY-RUN: inspect Codex marketplace path $MARKETPLACE_ROOT/.agents/plugins/marketplace.json"
   fi
   ;;
 

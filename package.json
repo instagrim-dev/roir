@@ -21,7 +21,6 @@
     "examples/",
     "fixtures/",
     "hooks/",
-    "pnpm-lock.yaml",
     "scripts/",
     "skills/",
     "src/",

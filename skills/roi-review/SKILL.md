@@ -13,6 +13,9 @@ procedure.
 Both skills call `verify_evaluate` via the lifecycle helper and surface
 the verdict (`pass` / `partial` / `fail` / `inconclusive`) to the
 operator. There is no behavioral difference.
+For high-stakes source-derived missions, follow `roi-verify` and pass
+`require_independent_source_contract_review: true` so `pass` requires
+`source_contract_proof_confidence: independent_reviewed`.
 
 The `roi:edit → roi:review` loop may repeat multiple times before
 publication. After a passing verdict, `next_actions` points to

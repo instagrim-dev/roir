@@ -25,7 +25,13 @@ import {
   implementationProofTrust,
   missionImplementationProofTrust,
   IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED,
+  SOURCE_CONTRACT_CONFIDENCE_INDEPENDENT_REVIEWED,
+  SOURCE_CONTRACT_CONFIDENCE_NONE,
+  SOURCE_CONTRACT_CONFIDENCE_STRUCTURAL,
   substantiveRoiGoForPlan,
+  sourceContractProofConfidence,
+  missionSourceContractProofConfidence,
+  runPlansHaveIndependentSourceContractReview,
   filterReviewBlockingIssues,
   selectGoHandoffTarget,
   planDependenciesMet,
@@ -247,6 +253,134 @@ test("validateRoiGoVerificationPass requires source contract coverage for source
       },
       { plan }
     )
+  );
+});
+
+test("validateRoiGoVerificationPass validates local manual-review evidence when workspace root is known", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-source-contract-evidence-"));
+  try {
+    fs.mkdirSync(path.join(dir, "roi", "docs", "audits"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "roi", "docs", "audits", "manual-review.md"), "reviewed\n");
+    const plan = {
+      id: "plan_contract",
+      actions: ["implement source contract"],
+      verification_targets: ["node scripts/check-inventory-contract.mjs"],
+      source_contract_refs: ["docs/plans/source-roadmap.md"],
+      requires_source_contract_check: true
+    };
+    const evidence = (manualEvidence) => ({
+      source: "roi:go",
+      type: "verification",
+      result: "pass",
+      content: {
+        plan_id: "plan_contract",
+        implementation_proof: {
+          oracles_ok: true,
+          diff_stat: "roi/src/service.mjs | 2 ++",
+          oracles_run: [{ cmd: "node scripts/check-inventory-contract.mjs", ok: true }],
+          source_contract: {
+            source_refs: ["docs/plans/source-roadmap.md"],
+            coverage: [
+              {
+                requirement: "Manual ledger names the reviewer artifact",
+                disposition: "manual_review",
+                evidence: manualEvidence
+              }
+            ]
+          }
+        }
+      }
+    });
+
+    assert.throws(
+      () =>
+        validateRoiGoVerificationPass(evidence("docs/audits/missing-review.md"), { plan }, {
+          workspaceRoot: dir
+        }),
+      /manual_review evidence not found on disk/
+    );
+    assert.throws(
+      () =>
+        validateRoiGoVerificationPass(evidence("../outside-review.md"), { plan }, {
+          workspaceRoot: dir
+        }),
+      /manual_review evidence must be a repo-relative path/
+    );
+    assert.doesNotThrow(() =>
+      validateRoiGoVerificationPass(evidence("docs/audits/manual-review.md"), { plan }, {
+        workspaceRoot: dir
+      })
+    );
+    assert.doesNotThrow(() =>
+      validateRoiGoVerificationPass(evidence("artifact-review-123"), { plan }, {
+        workspaceRoot: dir
+      })
+    );
+    assert.doesNotThrow(() =>
+      validateRoiGoVerificationPass(evidence("https://example.test/review/123"), { plan }, {
+        workspaceRoot: dir
+      })
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("sourceContractProofConfidence distinguishes structural and independent review", () => {
+  const plan = {
+    id: "plan_contract",
+    actions: ["implement source contract"],
+    verification_targets: ["node scripts/check-inventory-contract.mjs"],
+    source_contract_refs: ["docs/plans/source-roadmap.md"],
+    requires_source_contract_check: true
+  };
+  const structural = {
+    source: "roi:go",
+    type: "verification",
+    result: "pass",
+    content: {
+      plan_id: "plan_contract",
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "roi/src/service.mjs | 2 ++",
+        oracles_run: [{ cmd: "node scripts/check-inventory-contract.mjs", ok: true }],
+        source_contract: {
+          source_refs: ["docs/plans/source-roadmap.md"],
+          coverage: [
+            {
+              requirement: "Manual ledger names the reviewer artifact",
+              disposition: "manual_review",
+              evidence: "artifact-review-123"
+            }
+          ]
+        }
+      }
+    }
+  };
+  const independent = structuredClone(structural);
+  independent.content.implementation_proof.source_contract.review = {
+    mode: "independent",
+    reviewer: "fresh-session-review",
+    evidence: "artifact-independent-review-123"
+  };
+
+  assert.equal(sourceContractProofConfidence(null, plan), SOURCE_CONTRACT_CONFIDENCE_NONE);
+  assert.equal(sourceContractProofConfidence(structural, plan), SOURCE_CONTRACT_CONFIDENCE_STRUCTURAL);
+  assert.equal(
+    sourceContractProofConfidence(independent, plan),
+    SOURCE_CONTRACT_CONFIDENCE_INDEPENDENT_REVIEWED
+  );
+  assert.equal(
+    missionSourceContractProofConfidence([plan], [structural]),
+    SOURCE_CONTRACT_CONFIDENCE_STRUCTURAL
+  );
+  assert.equal(
+    runPlansHaveIndependentSourceContractReview([plan], [structural], [plan.id]),
+    false
+  );
+  assert.equal(
+    runPlansHaveIndependentSourceContractReview([plan], [independent], [plan.id]),
+    true
   );
 });
 

@@ -6,12 +6,18 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { evidenceTimestamp, qualityReviewInvalidatesPlan } from "./missionVerificationPolicy.mjs";
+import {
+  compareEvidenceChronological,
+  qualityReviewInvalidatesPlan
+} from "./missionVerificationPolicy.mjs";
 
 const PRODUCT_TREE_KEYS = new Set(["bmo", "roi"]);
 
 export const IMPLEMENTATION_PROOF_TRUST_AGENT_CLAIMED = "agent_claimed";
 export const IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED = "mcp_verified";
+export const SOURCE_CONTRACT_CONFIDENCE_NONE = "none";
+export const SOURCE_CONTRACT_CONFIDENCE_STRUCTURAL = "structural";
+export const SOURCE_CONTRACT_CONFIDENCE_INDEPENDENT_REVIEWED = "independent_reviewed";
 
 /** Trust level for a single roi:go verification row (D7). */
 export function implementationProofTrust(evidence) {
@@ -72,7 +78,44 @@ export function planRequiresSourceContractCheck(plan) {
   );
 }
 
-function sourceContractCoverageIssue(input, plan = null) {
+function isExternalEvidenceRef(ref) {
+  return /^[a-z][a-z0-9+.-]*:/i.test(ref) && !ref.startsWith("file:");
+}
+
+function isOpaqueEvidenceRef(ref) {
+  return !ref.startsWith("file:") && /^[A-Za-z0-9_.:-]+$/.test(ref) && !ref.includes("/");
+}
+
+function sourceContractEvidencePathIssue(ref, workspaceRoot) {
+  const proofRef = String(ref ?? "").trim();
+  if (!proofRef || isExternalEvidenceRef(proofRef) || isOpaqueEvidenceRef(proofRef)) {
+    return "";
+  }
+  const normalized = normalizeRepoRelativePath(proofRef);
+  if (
+    path.isAbsolute(normalized) ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../") ||
+    normalized.endsWith("/..")
+  ) {
+    return `manual_review evidence must be a repo-relative path, URL, or artifact id: ${proofRef}`;
+  }
+  const root = String(workspaceRoot ?? "").trim();
+  if (!root) {
+    return "";
+  }
+  const parts = splitProductTreePath(normalized);
+  const resolved = parts && PRODUCT_TREE_KEYS.has(parts.treeKey)
+    ? resolveTouchedPath(normalized, root)
+    : path.resolve(resolveRoiPackageRoot(root), normalized);
+  if (!fs.existsSync(resolved)) {
+    return `manual_review evidence not found on disk: ${proofRef}`;
+  }
+  return "";
+}
+
+function sourceContractCoverageIssue(input, plan = null, options = {}) {
   if (!planRequiresSourceContractCheck(plan)) {
     return "";
   }
@@ -123,6 +166,10 @@ function sourceContractCoverageIssue(input, plan = null) {
       if (!proofRef) {
         return `source_contract.coverage[${index}] is missing evidence`;
       }
+      const evidenceIssue = sourceContractEvidencePathIssue(proofRef, options.workspaceRoot);
+      if (evidenceIssue) {
+        return `source_contract.coverage[${index}] ${evidenceIssue}`;
+      }
     }
     if (disposition === "not_applicable") {
       const reason = String(row.reason ?? "").trim();
@@ -134,8 +181,39 @@ function sourceContractCoverageIssue(input, plan = null) {
   return "";
 }
 
-export function sourceContractCoveragePresent(input, plan = null) {
-  return !sourceContractCoverageIssue(input, plan);
+export function sourceContractCoveragePresent(input, plan = null, options = {}) {
+  return !sourceContractCoverageIssue(input, plan, options);
+}
+
+function sourceContractFromEvidence(evidence) {
+  const content = asPlainObject(evidence?.content ?? evidence);
+  const proof = asPlainObject(content.implementation_proof);
+  return asPlainObject(proof.source_contract ?? content.source_contract);
+}
+
+function independentReviewMetadataPresent(evidence) {
+  const sourceContract = sourceContractFromEvidence(evidence);
+  const review = asPlainObject(sourceContract.independent_review ?? sourceContract.review);
+  const mode = String(review.mode ?? sourceContract.review_mode ?? "").trim();
+  const reviewer = String(review.reviewer ?? review.reviewed_by ?? sourceContract.reviewed_by ?? "").trim();
+  const proofRef = String(
+    review.evidence ?? review.artifact_ref ?? review.proof ?? sourceContract.review_evidence ?? ""
+  ).trim();
+  return ["independent", "independent_review", "independent_reviewed"].includes(mode) &&
+    Boolean(reviewer) &&
+    Boolean(proofRef);
+}
+
+export function sourceContractProofConfidence(evidence, plan = null, options = {}) {
+  if (!planRequiresSourceContractCheck(plan)) {
+    return SOURCE_CONTRACT_CONFIDENCE_NONE;
+  }
+  if (!sourceContractCoveragePresent(evidence, plan, options)) {
+    return SOURCE_CONTRACT_CONFIDENCE_NONE;
+  }
+  return independentReviewMetadataPresent(evidence)
+    ? SOURCE_CONTRACT_CONFIDENCE_INDEPENDENT_REVIEWED
+    : SOURCE_CONTRACT_CONFIDENCE_STRUCTURAL;
 }
 
 /** Workspace root for agent-cli container (parent of `roi/`). */
@@ -396,6 +474,53 @@ export function runPlansHaveMcpVerifiedGoEvidence(plans, evidenceList, planIds) 
   return true;
 }
 
+function sourceContractPlansInScope(plans, options = {}) {
+  return inScopePlans(plans, options).filter((plan) => planRequiresSourceContractCheck(plan));
+}
+
+export function runPlansHaveIndependentSourceContractReview(plans, evidenceList, planIds) {
+  const scoped = sourceContractPlansInScope(plans, { planIds });
+  if (!scoped.length) {
+    return true;
+  }
+  const byPlan = latestRoiGoVerificationByPlan(evidenceList);
+  for (const plan of scoped) {
+    const latest = byPlan.get(plan.id);
+    if (!isSubstantiveRoiGoVerification(latest, plan, { evidenceList })) {
+      return false;
+    }
+    if (
+      sourceContractProofConfidence(latest, plan) !==
+      SOURCE_CONTRACT_CONFIDENCE_INDEPENDENT_REVIEWED
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function missionSourceContractProofConfidence(plans, evidenceList, options = {}) {
+  const scoped = sourceContractPlansInScope(plans, options);
+  if (!scoped.length) {
+    return SOURCE_CONTRACT_CONFIDENCE_NONE;
+  }
+  const byPlan = latestRoiGoVerificationByPlan(evidenceList);
+  let sawStructural = false;
+  for (const plan of scoped) {
+    const latest = byPlan.get(plan.id);
+    if (!isSubstantiveRoiGoVerification(latest, plan, { evidenceList })) {
+      return SOURCE_CONTRACT_CONFIDENCE_NONE;
+    }
+    const confidence = sourceContractProofConfidence(latest, plan);
+    if (confidence !== SOURCE_CONTRACT_CONFIDENCE_INDEPENDENT_REVIEWED) {
+      sawStructural = confidence === SOURCE_CONTRACT_CONFIDENCE_STRUCTURAL || sawStructural;
+    }
+  }
+  return sawStructural
+    ? SOURCE_CONTRACT_CONFIDENCE_STRUCTURAL
+    : SOURCE_CONTRACT_CONFIDENCE_INDEPENDENT_REVIEWED;
+}
+
 export function validateRoiGoVerificationPass(input, { plan } = {}, options = {}) {
   const result = String(input.result ?? "")
     .trim()
@@ -432,7 +557,7 @@ export function validateRoiGoVerificationPass(input, { plan } = {}, options = {}
     if (targets.length > 0 && proof.oracles_ok !== true) {
       throw new Error("roi:go verify-only pass requires implementation_proof.oracles_ok: true");
     }
-    const sourceContractIssue = sourceContractCoverageIssue({ content }, plan);
+    const sourceContractIssue = sourceContractCoverageIssue({ content }, plan, options);
     if (sourceContractIssue) {
       throw new Error(`roi:go verification pass requires source contract coverage: ${sourceContractIssue}`);
     }
@@ -459,7 +584,7 @@ export function validateRoiGoVerificationPass(input, { plan } = {}, options = {}
     );
   }
 
-  const sourceContractIssue = sourceContractCoverageIssue({ content }, plan);
+  const sourceContractIssue = sourceContractCoverageIssue({ content }, plan, options);
   if (sourceContractIssue) {
     throw new Error(`roi:go verification pass requires source contract coverage: ${sourceContractIssue}`);
   }
@@ -572,9 +697,7 @@ function planIdFromEvidence(evidence) {
 /** Latest roi:go verification row per plan_id (newest captured_at wins). */
 export function latestRoiGoVerificationByPlan(evidenceList) {
   const byPlan = new Map();
-  const sorted = [...(evidenceList ?? [])].sort((a, b) =>
-    evidenceTimestamp(b).localeCompare(evidenceTimestamp(a))
-  );
+  const sorted = [...(evidenceList ?? [])].sort((a, b) => compareEvidenceChronological(b, a));
   for (const evidence of sorted) {
     const source = String(evidence.source ?? "").trim();
     const type = String(evidence.type ?? "").trim();

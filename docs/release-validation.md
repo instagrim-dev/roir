@@ -66,10 +66,10 @@ order by `pnpm run release:check`):
    `bmo-import/`, `artifacts/`, `.data/`, `node_modules/`, or
    `package-lock.json`) and includes the runtime surfaces required for
    handoff (`src/`, `skills/`, `agents/`, `.cursor/rules/roi-commands.mdc`,
-   `hooks/`, `docs/`, `fixtures/`, `scripts/`, `pnpm-lock.yaml`,
-   `package.json`).
+   `hooks/`, `docs/`, `fixtures/`, `scripts/`, `package.json`).
 8. **Extracted-package smoke** — the gate unpacks the tarball, installs
-   dependencies in the extracted `package/` root, and runs
+   dependencies in the extracted `package/` root with `--no-frozen-lockfile`
+   because package tarballs do not carry `pnpm-lock.yaml`, and runs
    `pnpm run smoke:integration` there so package-root assumptions, logical
    `roi/...` `paths_touched`, and helper-verified oracle paths are proven
    from the shipped artifact rather than only the checkout.
@@ -102,7 +102,6 @@ pnpm run release:check
   - `docs/`
   - `fixtures/`
   - `scripts/`
-  - `pnpm-lock.yaml`
   - `package.json`
 
 ### 2. Contract Validation
@@ -180,6 +179,13 @@ marketplace identity and supported auth policy:
 
 `authentication: "NONE"` is not valid for the current Codex local
 marketplace path and must fail `pnpm run release:check`.
+
+### 8. Source-Contract Payload Validation
+
+`pnpm run release:check` also inspects the packaged/extracted skills and docs
+for the source-contract proof contract. The payload must include manual-review
+evidence guidance, independent source-contract review guidance, and the
+`require_independent_source_contract_review` verify gate before release.
 
 ## Runtime Constraints
 

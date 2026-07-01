@@ -211,8 +211,14 @@ coverage is missing or malformed. The evidence `source_refs` must include every
 path in the plan's `source_contract_refs`, and each `verification_target`
 coverage row must exactly match one entry in the plan's `verification_targets`.
 If a requirement cannot be covered by a plan target, use `manual_review` or
-`not_applicable` with evidence or reason instead. `mission_go_progress` and
-`roi:verify` keep the plan open until source-contract coverage exists.
+`not_applicable` with evidence or reason instead. `manual_review` evidence must
+cite an inspectable proof artifact; local repo-relative evidence paths must
+exist when the helper can resolve them. For high-stakes source-derived
+missions, record independent-review metadata in `source_contract.review` and
+pass `require_independent_source_contract_review: true` to `verify_evaluate`.
+`status_get.summary.source_contract_proof_confidence` reports `none`,
+`structural`, or `independent_reviewed`. `mission_go_progress` and `roi:verify`
+keep the plan open until source-contract coverage exists.
 
 ## Notes
 

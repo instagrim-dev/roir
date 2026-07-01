@@ -694,6 +694,8 @@ export const ToolSchemas = Object.freeze({
     notes: z.string().optional(),
     /** D7-w3: pass blocked unless run plans have mcp_verified substantive roi:go */
     require_verified_proof: z.boolean().optional(),
+    /** Source-contract pass blocked unless marked run plans have independent_reviewed proof */
+    require_independent_source_contract_review: z.boolean().optional(),
     /** D2-D: MCP runs plan verification_targets and stamps verify_gate on evidence */
     run_oracles: z.boolean().optional(),
     /** Checkpoint pass when at least one run plan has substantive roi:go but mission is incomplete */

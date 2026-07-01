@@ -6,9 +6,11 @@ import {
   missionGoProgress,
   missionImplementationProofTrust,
   missionNeedsRoiGo,
+  missionSourceContractProofConfidence,
   partialVerificationCheckpoint,
   partialVerificationEligible,
   pausedRunNextActions,
+  runPlansHaveIndependentSourceContractReview,
   substantiveRoiGoForPlan,
   latestRoiGoVerificationByPlan,
   runPlansHaveMcpVerifiedGoEvidence,
@@ -1088,6 +1090,8 @@ export class ROIService {
     const requireVerifiedProof =
       input.require_verified_proof === true ||
       (policyStrict && verdict === VerifyVerdict.PASS && !allowPartial);
+    const requireIndependentSourceContractReview =
+      input.require_independent_source_contract_review === true;
 
     if (verdict === VerifyVerdict.PASS && allowPartial && !checkpoint.allowed) {
       throw new Error(
@@ -1113,12 +1117,27 @@ export class ROIService {
         );
       }
     }
+    if (
+      verdict === VerifyVerdict.PASS &&
+      requireIndependentSourceContractReview &&
+      !runPlansHaveIndependentSourceContractReview(missionPlans, missionEvidence, run.plan_ids)
+    ) {
+      throw new Error(
+        "verify_evaluate(pass) blocked: require_independent_source_contract_review but run source-contract plan(s) lack independent_reviewed proof"
+      );
+    }
     const content = {
       notes: input.notes?.trim() || "",
       brief_revision: brief?.revision ?? 0,
       plan_ids: run.plan_ids,
-      verification_policy: missionVerificationPolicyFromBrief(brief)
+      verification_policy: missionVerificationPolicyFromBrief(brief),
+      source_contract_proof_confidence: missionSourceContractProofConfidence(missionPlans, missionEvidence, {
+        planIds: run.plan_ids
+      })
     };
+    if (requireIndependentSourceContractReview) {
+      content.require_independent_source_contract_review = true;
+    }
     if (input.run_oracles === true) {
       const oraclePlanIds = partialCheckpoint ? checkpoint.substantive_plan_ids : run.plan_ids;
       const plans = oraclePlanIds.map((planId) => this._getLatestPlan(planId));
@@ -1406,6 +1425,7 @@ export class ROIService {
         mission_go_progress: this._missionGoProgress(mission_id),
         partial_verification_eligible: this._partialVerificationEligible(mission_id),
         implementation_proof_trust: this._missionImplementationProofTrust(mission_id),
+        source_contract_proof_confidence: this._missionSourceContractProofConfidence(mission_id),
         next_actions: this._nextActions(mission_id)
       }
     };
@@ -3108,9 +3128,11 @@ export class ROIService {
   }
 
   _insertEvidence(data) {
+    const sequence = Number(this._stmts.evidence_count_by_mission.get(data.mission_id)?.n ?? 0) + 1;
     const evidence = {
       schema_version: ROI_SCHEMA_VERSION,
       id: newId("evidence"),
+      sequence,
       mission_id: data.mission_id,
       run_id: data.run_id ?? "",
       type: data.type ?? "note",
@@ -3432,6 +3454,14 @@ export class ROIService {
     const plans = this._listLatestPlans(missionId);
     const evidence = this.evidenceList({ mission_id: missionId }).evidence;
     return missionImplementationProofTrust(plans, evidence, {
+      skipPlanIds: this._convergenceSkipPlanIds(missionId)
+    });
+  }
+
+  _missionSourceContractProofConfidence(missionId) {
+    const plans = this._listLatestPlans(missionId);
+    const evidence = this.evidenceList({ mission_id: missionId }).evidence;
+    return missionSourceContractProofConfidence(plans, evidence, {
       skipPlanIds: this._convergenceSkipPlanIds(missionId)
     });
   }

@@ -84,6 +84,9 @@ Check:
   config file
 - the ROI skills directory is reachable from Codex (no broken symlinks
   after a checkout move)
+- after updating a checkout, re-run `scripts/install-agent-skills.sh codex`
+  and inspect the dry-run payload paths if the skill picker still shows stale
+  source-contract guidance
 
 For the Codex desktop app, after running the installer also click
 **Codex.app → Settings (⚙) → Plugins → ROI → Install**, then restart.

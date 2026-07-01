@@ -199,6 +199,9 @@ covers outcome strength, binding altitude, and property-style verification.
        requirement is absent or weakened, or
      - an explicit manual-review obligation that `roi:go` can cite in
        `implementation_proof.source_contract.coverage`.
+       The obligation must name the proof artifact or reader job that will
+       become `coverage[].evidence`; local repo-relative evidence paths must
+       exist when `roi:go` records the pass.
    - Ensure any future `coverage[].verification_target` value can exactly
      match one persisted `verification_targets` entry; do not invent proof
      commands later in `roi:go`.

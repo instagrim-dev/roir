@@ -101,6 +101,8 @@ When a plan has `requires_source_contract_check: true` or non-empty
 `source_contract.source_refs` and `coverage[]`. The source refs must include
 the plan refs, and `verification_target` coverage rows must cite persisted plan
 targets; otherwise the helper does not count the row as substantive.
+Manual-review coverage rows must cite inspectable evidence; local
+repo-relative evidence paths must exist when the helper can resolve them.
 
 `status_get` (mission scope) also exposes:
 
@@ -111,6 +113,10 @@ targets; otherwise the helper does not count the row as substantive.
 - `implementation_proof_trust` — `agent_claimed` (default) or `mcp_verified`
   when `implementation_proof.verified_by` is `mcp` (legacy stamp name; means
   helper-verified)
+- `source_contract_proof_confidence` — `none`, `structural`, or
+  `independent_reviewed`. Structural means the helper accepted source refs,
+  coverage rows, target membership, and manual-review evidence references; it
+  does not mean a fresh reviewer agreed the coverage is semantically strong.
 
 `evidence_record` optional fields (D7):
 

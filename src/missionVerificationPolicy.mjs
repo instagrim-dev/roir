@@ -119,6 +119,31 @@ export function evidenceTimestamp(evidence) {
   return String(evidence?.captured_at ?? evidence?.created_at ?? "").trim();
 }
 
+function evidenceSequence(evidence) {
+  const raw = evidence?.sequence ?? evidence?.captured_sequence;
+  const seq = Number(raw);
+  return Number.isFinite(seq) ? seq : null;
+}
+
+export function compareEvidenceChronological(a, b) {
+  const timeCmp = evidenceTimestamp(a).localeCompare(evidenceTimestamp(b));
+  if (timeCmp !== 0) {
+    return timeCmp;
+  }
+  const aSeq = evidenceSequence(a);
+  const bSeq = evidenceSequence(b);
+  if (aSeq !== null && bSeq !== null && aSeq !== bSeq) {
+    return aSeq - bSeq;
+  }
+  if (aSeq !== null && bSeq === null) {
+    return 1;
+  }
+  if (aSeq === null && bSeq !== null) {
+    return -1;
+  }
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+}
+
 function isRoiGoPassForPlan(evidence, planId) {
   return (
     String(evidence?.source ?? "").trim() === "roi:go" &&
@@ -149,13 +174,7 @@ export function qualityReviewInvalidatesPlan(evidenceList, planId) {
   if (!pid) {
     return false;
   }
-  const chronological = [...(evidenceList ?? [])].sort((a, b) => {
-    const timeCmp = evidenceTimestamp(a).localeCompare(evidenceTimestamp(b));
-    if (timeCmp !== 0) {
-      return timeCmp;
-    }
-    return String(a.id ?? "").localeCompare(String(b.id ?? ""));
-  });
+  const chronological = [...(evidenceList ?? [])].sort(compareEvidenceChronological);
   let invalidated = false;
   for (const ev of chronological) {
     if (isRoiGoPassForPlan(ev, pid)) {

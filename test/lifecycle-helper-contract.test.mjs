@@ -170,3 +170,73 @@ test("lifecycle helper validates args against ToolSchemas before dispatch", () =
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
+
+test("lifecycle helper accepts independent source-contract verify gate", async (t) => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-helper-source-contract-"));
+  t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+  const dbPath = path.join(tmpDir, "source-contract.sqlite");
+
+  const mission = callVerb(dbPath, "mission_create", {
+    title: "Helper source-contract gate",
+    goal: "Verify independent source-contract review through the helper.",
+  }).mission;
+  callVerb(dbPath, "brief_revise", {
+    mission_id: mission.id,
+    success_criteria: ["Source-contract review is independently checked"],
+  });
+  const plan = callVerb(dbPath, "plan_generate", {
+    mission_id: mission.id,
+    plans: [
+      {
+        name: "Source-contract helper seam",
+        actions: ["Record reviewed evidence"],
+        verification_targets: ["node -e \"process.exit(0)\""],
+        source_contract_refs: ["docs/plans/source-roadmap.md"],
+        requires_source_contract_check: true,
+      },
+    ],
+  }).plans[0];
+  const run = callVerb(dbPath, "run_create", {
+    mission_id: mission.id,
+    mode: "local",
+    prompt: "Drive source-contract helper gate",
+  }).run;
+  callVerb(dbPath, "evidence_record", {
+    mission_id: mission.id,
+    type: "verification",
+    source: "roi:go",
+    result: "pass",
+    content: {
+      plan_id: plan.id,
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "roi/src/service.mjs | 1 +",
+        paths_touched: ["roi/src/service.mjs"],
+        oracles_run: [{ cmd: plan.verification_targets[0], ok: true }],
+        source_contract: {
+          source_refs: ["docs/plans/source-roadmap.md"],
+          review: {
+            mode: "independent",
+            reviewer: "helper-contract-test",
+            evidence: "artifact-independent-review-123",
+          },
+          coverage: [
+            {
+              requirement: "Source-contract review is independently checked",
+              disposition: "verification_target",
+              verification_target: plan.verification_targets[0],
+            },
+          ],
+        },
+      },
+    },
+  });
+  const verdict = callVerb(dbPath, "verify_evaluate", {
+    run_id: run.id,
+    verdict: "pass",
+    notes: "independent source-contract review present",
+    require_independent_source_contract_review: true,
+  });
+  assert.equal(verdict.verdict, "pass");
+  assert.equal(verdict.evidence.content.source_contract_proof_confidence, "independent_reviewed");
+});

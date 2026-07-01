@@ -221,12 +221,17 @@ For plans with `requires_source_contract_check: true` or non-empty
 that map each source requirement to a verification target, manual-review
 proof, or explicit not-applicable reason. `source_refs` must include every
 plan `source_contract_refs` path, and `verification_target` coverage rows must
-exactly match persisted plan `verification_targets`.
+exactly match persisted plan `verification_targets`. Manual-review evidence
+must cite an inspectable proof artifact; local repo-relative evidence paths must
+exist when the helper can resolve them.
 At verify gate, pass **`require_verified_proof: true`** on
 `verify_evaluate` to require `mcp_verified` go evidence for the run's
 plans (default false), or **`run_oracles: true`** to have the helper run
 `verification_targets` at verify time and stamp `content.verify_gate`
-(blocks `pass` if targets fail; D2-D). For incremental missions,
+(blocks `pass` if targets fail; D2-D). For high-stakes source-derived
+missions, pass **`require_independent_source_contract_review: true`** to require
+`source_contract_proof_confidence: independent_reviewed` before `pass`.
+For incremental missions,
 **`allow_partial_verification: true`** with **`verdict: pass`** records a
 checkpoint pass when at least one run plan has substantive `roi:go` but
 the mission is incomplete — stamps `verify_gate.partial_mission`, keeps

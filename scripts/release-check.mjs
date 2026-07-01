@@ -15,6 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const currentFile = fileURLToPath(import.meta.url);
 const root = path.join(__dirname, "..");
 
 const forbiddenPackagePaths = [
@@ -34,7 +35,6 @@ const requiredPackagePaths = [
   { label: "docs", prefix: "package/docs/" },
   { label: "fixtures", prefix: "package/fixtures/" },
   { label: "scripts", prefix: "package/scripts/" },
-  { label: "pnpm lockfile", exact: "package/pnpm-lock.yaml" },
   { label: "package metadata", exact: "package/package.json" },
 ];
 
@@ -137,6 +137,58 @@ function inspectMarketplaceContract() {
   console.log("marketplace ok: roi-plugin uses ON_INSTALL");
 }
 
+export function requiredPayloadTextChecks(rootDir = root) {
+  const checks = [
+    {
+      file: "AGENTS.md",
+      snippets: [
+        "Source Contract Preservation",
+        "manual_review",
+        "requires_source_contract_check"
+      ]
+    },
+    {
+      file: "skills/roi-go/SKILL.md",
+      snippets: [
+        "source_contract",
+        "manual-review proof artifact",
+        "independent source-contract review"
+      ]
+    },
+    {
+      file: "skills/roi-verify/SKILL.md",
+      snippets: [
+        "require_independent_source_contract_review",
+        "independent_reviewed"
+      ]
+    },
+    {
+      file: "docs/limitations.md",
+      snippets: [
+        "manual-review evidence",
+        "independent_reviewed"
+      ]
+    },
+    {
+      file: "docs/installation.md",
+      snippets: [
+        "Re-run `scripts/install-agent-skills.sh codex`",
+        "refresh the symlinks"
+      ]
+    }
+  ];
+  for (const check of checks) {
+    const filePath = path.join(rootDir, check.file);
+    const text = fs.readFileSync(filePath, "utf8");
+    for (const snippet of check.snippets) {
+      if (!text.includes(snippet)) {
+        throw new Error(`release payload ${check.file} is missing required text: ${snippet}`);
+      }
+    }
+  }
+  console.log("payload text ok: source-contract proof guidance present");
+}
+
 function inspectPackage() {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-release-pack-"));
   try {
@@ -175,13 +227,14 @@ function inspectPackage() {
         `package is missing required paths: ${missing.map((rule) => rule.label).join(", ")}`
       );
     }
+    requiredPayloadTextChecks(unpackedPackageDir);
 
     const stats = fs.statSync(archivePath);
     console.log(
       `package ok: ${listing.length} entries, ${(stats.size / 1024).toFixed(1)} KiB, ${archivePath}`
     );
 
-    run("Install extracted package dependencies", "pnpm", ["install", "--frozen-lockfile"], {
+    run("Install extracted package dependencies", "pnpm", ["install", "--no-frozen-lockfile"], {
       cwd: unpackedPackageDir,
     });
     run("Smoke extracted package", "pnpm", ["run", "smoke:integration"], {
@@ -192,31 +245,38 @@ function inspectPackage() {
   }
 }
 
-try {
-  run("Validate lifecycle verb manifest", "pnpm", ["run", "validate"]);
-  inspectMarketplaceContract();
-  run("Run test suite", "pnpm", ["test"]);
-  run("Run integration smoke", "pnpm", ["run", "smoke:integration"]);
-  run("Dry-run Claude skill install", "bash", [
-    "scripts/install-agent-skills.sh",
-    "claude-user",
-    "--dry-run",
-  ]);
-  run("Dry-run Codex skill install", "bash", [
-    "scripts/install-agent-skills.sh",
-    "codex",
-    "--dry-run",
-  ]);
-  run("Dry-run Copilot skill install", "bash", [
-    "scripts/install-agent-skills.sh",
-    "copilot",
-    "--dry-run",
-  ]);
-  run("Audit production dependencies", "pnpm", ["audit", "--prod"]);
-  inspectPackage();
+export function main() {
+  try {
+    run("Validate lifecycle verb manifest", "pnpm", ["run", "validate"]);
+    inspectMarketplaceContract();
+    requiredPayloadTextChecks();
+    run("Run test suite", "pnpm", ["test"]);
+    run("Run integration smoke", "pnpm", ["run", "smoke:integration"]);
+    run("Dry-run Claude skill install", "bash", [
+      "scripts/install-agent-skills.sh",
+      "claude-user",
+      "--dry-run",
+    ]);
+    run("Dry-run Codex skill install", "bash", [
+      "scripts/install-agent-skills.sh",
+      "codex",
+      "--dry-run",
+    ]);
+    run("Dry-run Copilot skill install", "bash", [
+      "scripts/install-agent-skills.sh",
+      "copilot",
+      "--dry-run",
+    ]);
+    run("Audit production dependencies", "pnpm", ["audit", "--prod"]);
+    inspectPackage();
 
-  console.log("\nrelease-check: ok");
-} catch (err) {
-  console.error(`\nrelease-check: failed: ${err.message}`);
-  process.exit(1);
+    console.log("\nrelease-check: ok");
+  } catch (err) {
+    console.error(`\nrelease-check: failed: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === currentFile) {
+  main();
 }

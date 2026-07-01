@@ -224,6 +224,173 @@ test("ROI evidence_record requires source-contract proof before verify can compl
   assert.equal(verified.run.status, RunStatus.COMPLETED);
 });
 
+test("ROI evidence_record rejects source-contract manual_review evidence that is not inspectable", (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service, {
+    title: "Manual review source contract mission",
+    goal: "Require inspectable manual source-contract proof",
+    plan: {
+      name: "Manual source contract plan",
+      actions: ["Preserve manual-only contract"],
+      verification_targets: ["node -e \"process.exit(0)\""],
+      source_contract_refs: ["docs/plans/source-roadmap.md"],
+      requires_source_contract_check: true
+    }
+  });
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+
+  assert.throws(
+    () =>
+      service.evidenceRecord({
+        mission_id: mission.id,
+        type: "verification",
+        source: "roi:go",
+        result: "pass",
+        content: {
+          plan_id: plan.id,
+          implementation_proof: {
+            oracles_ok: true,
+            diff_stat: "roi/src/service.mjs | 1 +",
+            paths_touched: ["roi/src/service.mjs"],
+            oracles_run: [{ cmd: plan.verification_targets[0], ok: true }],
+            source_contract: {
+              source_refs: ["docs/plans/source-roadmap.md"],
+              coverage: [
+                {
+                  requirement: "Manual review points to a real proof artifact",
+                  disposition: "manual_review",
+                  evidence: "docs/audits/roi-missing-source-contract-proof-for-test.md"
+                }
+              ]
+            }
+          }
+        }
+      }),
+    /manual_review evidence not found on disk/
+  );
+});
+
+test("ROI source-contract confidence and independent-review verify gate are explicit", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service, {
+    title: "Independent review source contract mission",
+    goal: "Distinguish structural from independently reviewed proof",
+    plan: {
+      name: "Source contract review plan",
+      actions: ["Preserve source contract"],
+      verification_targets: ["node -e \"process.exit(0)\""],
+      source_contract_refs: ["docs/plans/source-roadmap.md"],
+      requires_source_contract_check: true
+    }
+  });
+  const plan = service.planList({ mission_id: mission.id }).plans[0];
+  const run = (await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: [plan.id],
+    mode: "local",
+    prompt: "stub"
+  })).run;
+
+  service.evidenceRecord({
+    mission_id: mission.id,
+    type: "verification",
+    source: "roi:go",
+    result: "pass",
+    content: {
+      plan_id: plan.id,
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "roi/src/service.mjs | 1 +",
+        paths_touched: ["roi/src/service.mjs"],
+        oracles_run: [{ cmd: plan.verification_targets[0], ok: true }],
+        source_contract: {
+          source_refs: ["docs/plans/source-roadmap.md"],
+          coverage: [
+            {
+              requirement: "Source requirement is represented by the runnable gate",
+              disposition: "verification_target",
+              verification_target: plan.verification_targets[0]
+            }
+          ]
+        }
+      }
+    }
+  });
+  assert.equal(
+    service.statusGet({ mission_id: mission.id }).summary.source_contract_proof_confidence,
+    "structural"
+  );
+  assert.throws(
+    () =>
+      service.verifyEvaluate({
+        run_id: run.id,
+        verdict: VerifyVerdict.PASS,
+        notes: "requires fresh review",
+        require_independent_source_contract_review: true
+      }),
+    /require_independent_source_contract_review/
+  );
+
+  const reviewedMission = seedMission(service, {
+    title: "Reviewed source contract mission",
+    goal: "Pass with independent source-contract review",
+    plan: {
+      name: "Reviewed source contract plan",
+      actions: ["Preserve reviewed source contract"],
+      verification_targets: ["node -e \"process.exit(0)\""],
+      source_contract_refs: ["docs/plans/source-roadmap.md"],
+      requires_source_contract_check: true
+    }
+  });
+  const reviewedPlan = service.planList({ mission_id: reviewedMission.id }).plans[0];
+  const reviewedRun = (await service.runCreate({
+    mission_id: reviewedMission.id,
+    plan_ids: [reviewedPlan.id],
+    mode: "local",
+    prompt: "stub"
+  })).run;
+  service.evidenceRecord({
+    mission_id: reviewedMission.id,
+    type: "verification",
+    source: "roi:go",
+    result: "pass",
+    content: {
+      plan_id: reviewedPlan.id,
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "roi/src/service.mjs | 1 +",
+        paths_touched: ["roi/src/service.mjs"],
+        oracles_run: [{ cmd: reviewedPlan.verification_targets[0], ok: true }],
+        source_contract: {
+          source_refs: ["docs/plans/source-roadmap.md"],
+          review: {
+            mode: "independent",
+            reviewer: "fresh-session-review",
+            evidence: "artifact-independent-review-123"
+          },
+          coverage: [
+            {
+              requirement: "Source requirement is represented by the runnable gate",
+              disposition: "verification_target",
+              verification_target: reviewedPlan.verification_targets[0]
+            }
+          ]
+        }
+      }
+    }
+  });
+
+  const reviewedStatus = service.statusGet({ mission_id: reviewedMission.id }).summary;
+  assert.equal(reviewedStatus.source_contract_proof_confidence, "independent_reviewed");
+  const verdict = service.verifyEvaluate({
+    run_id: reviewedRun.id,
+    verdict: VerifyVerdict.PASS,
+    notes: "independent review recorded",
+    require_independent_source_contract_review: true
+  });
+  assert.equal(verdict.evidence.content.source_contract_proof_confidence, "independent_reviewed");
+});
+
 test("ROI full verify pass reconciles externally satisfied multi-plan workflow ledger", async (t) => {
   const { service } = createHarness(t);
   const mission = seedMission(service, {

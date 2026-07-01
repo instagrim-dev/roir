@@ -58,14 +58,21 @@ the plan." Read
    row includes `implementation_proof.source_contract.source_refs` and
    `coverage[]`. Each coverage row must name the source requirement and map
    it to `verification_target`, `manual_review`, or `not_applicable` with
-   proof or reason. `source_refs` must include the plan's `source_contract_refs`,
+   proof or reason. `manual_review` proof must cite an inspectable evidence
+   artifact; local repo-relative evidence paths must exist when the helper can
+   resolve them. `source_refs` must include the plan's `source_contract_refs`,
    and `verification_target` rows must cite an actual plan target. Treat missing
    or mismatched coverage as **not substantive** even when oracles passed.
 
-5. Form an explicit verdict and write reasoning into `notes`. The notes
+5. For high-stakes source-derived missions, pass
+   `require_independent_source_contract_review: true`. That gate blocks `pass`
+   unless source-contract proof confidence is `independent_reviewed`, which
+   requires explicit independent-review metadata in the `roi:go` proof bundle.
+
+6. Form an explicit verdict and write reasoning into `notes`. The notes
    field is the durable record of why this verdict was recorded.
 
-6. Persist:
+7. Persist:
 
    ```bash
    node roi/scripts/lifecycle.mjs verify_evaluate '<json>'
@@ -79,6 +86,7 @@ the plan." Read
      "verdict": "pass",
      "notes": "All in-scope plans show substantive roi:go evidence; success criteria 1-3 satisfied per oracle output.",
      "require_verified_proof": false,
+     "require_independent_source_contract_review": false,
      "run_oracles": false,
      "allow_partial_verification": false
    }
@@ -89,6 +97,7 @@ the plan." Read
 | Flag | When to use |
 |------|-------------|
 | `require_verified_proof: true` | Verdict `pass` is rejected unless every run plan has substantive `roi:go` with `verified_by: mcp` (set by recording evidence with `run_oracles: true`). Use when the gate must accept only helper-verified proof. |
+| `require_independent_source_contract_review: true` | Verdict `pass` is rejected unless source-contract run plans have `source_contract_proof_confidence: independent_reviewed`. Use for doctrine, roadmap, or other source-derived missions where same-session structural checks are not enough. |
 | `run_oracles: true` | Helper runs each run plan's `verification_targets` at the gate and stamps `content.verify_gate.verified_by: mcp`; pass is rejected if any target fails. Independent of `roi:go`'s own oracle runs. |
 | `allow_partial_verification: true` | **`verdict: pass` only.** Checkpoint pass when ≥1 run plan has substantive `roi:go` but the mission is incomplete. Stamps `verify_gate.partial_mission`; `next_actions` stay `roi:go`/`roi:inspect` (no `roi:publish`). With `run_oracles`, only **substantive** plans' targets run. |
 
@@ -122,7 +131,11 @@ and is the **last** reopen-or-go event for that plan (chronological order by
 until remediation is re-go'd (`partial` or `fail` with explicit plan ids).
 
 `status_get.summary.implementation_proof_trust` reflects which level applies
-to in-scope plans.
+to in-scope plans. `status_get.summary.source_contract_proof_confidence` is
+`none`, `structural`, or `independent_reviewed`. Structural means the helper
+accepted source refs, coverage rows, target membership, and manual-review
+evidence references; it does not mean an independent reviewer agreed the
+coverage is semantically strong.
 
 ## What this skill does NOT do
 

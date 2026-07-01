@@ -160,4 +160,25 @@ test("qualityReviewInvalidatesPlan uses last-event-wins at same captured_at", ()
     }
   ];
   assert.equal(qualityReviewInvalidatesPlan(reopenThenGo, planId), false);
+
+  const randomIdsGoThenReopen = [
+    {
+      id: "evidence_zz_go",
+      sequence: 1,
+      captured_at: ts,
+      source: "roi:go",
+      type: "verification",
+      result: "pass",
+      content: { plan_id: planId, implementation_proof: { oracles_ok: true, diff_stat: "a" } }
+    },
+    {
+      id: "evidence_aa_reopen",
+      sequence: 2,
+      captured_at: ts,
+      type: "quality_review",
+      result: "reopen",
+      content: { plan_ids: [planId], summary: "gap" }
+    }
+  ];
+  assert.equal(qualityReviewInvalidatesPlan(randomIdsGoThenReopen, planId), true);
 });
