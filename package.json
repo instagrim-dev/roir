@@ -17,7 +17,7 @@
     "assets/",
     "codex/",
     "copilot/",
-    "docs/",
+    "docs/*.md",
     "examples/",
     "fixtures/",
     "hooks/",

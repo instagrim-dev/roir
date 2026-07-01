@@ -11,6 +11,7 @@ import {
   partialVerificationEligible,
   pausedRunNextActions,
   runPlansHaveIndependentSourceContractReview,
+  runPlansHaveIndependentSourceContractReviewForSubstantive,
   substantiveRoiGoForPlan,
   latestRoiGoVerificationByPlan,
   runPlansHaveMcpVerifiedGoEvidence,
@@ -1086,6 +1087,7 @@ export class ROIService {
     const brief = this._getLatestBrief(run.mission_id);
     const checkpoint = partialVerificationCheckpoint(missionPlans, missionEvidence, run.plan_ids);
     const partialCheckpoint = allowPartial && checkpoint.partial_checkpoint;
+    const verifyScopePlanIds = partialCheckpoint ? checkpoint.substantive_plan_ids : run.plan_ids;
     const policyStrict = missionRequiresHelperVerifiedProof(brief);
     const requireVerifiedProof =
       input.require_verified_proof === true ||
@@ -1120,7 +1122,13 @@ export class ROIService {
     if (
       verdict === VerifyVerdict.PASS &&
       requireIndependentSourceContractReview &&
-      !runPlansHaveIndependentSourceContractReview(missionPlans, missionEvidence, run.plan_ids)
+      !(partialCheckpoint
+        ? runPlansHaveIndependentSourceContractReviewForSubstantive(
+            missionPlans,
+            missionEvidence,
+            run.plan_ids
+          )
+        : runPlansHaveIndependentSourceContractReview(missionPlans, missionEvidence, run.plan_ids))
     ) {
       throw new Error(
         "verify_evaluate(pass) blocked: require_independent_source_contract_review but run source-contract plan(s) lack independent_reviewed proof"
@@ -1132,7 +1140,7 @@ export class ROIService {
       plan_ids: run.plan_ids,
       verification_policy: missionVerificationPolicyFromBrief(brief),
       source_contract_proof_confidence: missionSourceContractProofConfidence(missionPlans, missionEvidence, {
-        planIds: run.plan_ids
+        planIds: verifyScopePlanIds
       })
     };
     if (requireIndependentSourceContractReview) {

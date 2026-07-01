@@ -18,15 +18,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const currentFile = fileURLToPath(import.meta.url);
 const root = path.join(__dirname, "..");
 
-const forbiddenPackagePaths = [
+export const forbiddenPackagePaths = [
   { label: "bmo-import mirror", prefix: "package/bmo-import/" },
   { label: "generated artifacts", prefix: "package/artifacts/" },
+  { label: "internal plans", prefix: "package/docs/plans/" },
   { label: "local data", prefix: "package/.data/" },
   { label: "vendored node_modules", prefix: "package/node_modules/" },
   { label: "npm lockfile", exact: "package/package-lock.json" },
 ];
 
-const requiredPackagePaths = [
+export const requiredPackagePaths = [
   { label: "runtime source", prefix: "package/src/" },
   { label: "skills", prefix: "package/skills/" },
   { label: "agents", prefix: "package/agents/" },
@@ -94,6 +95,28 @@ function archivePathFromPackOutput(output, tmpDir) {
 function matches(entry, rule) {
   if (rule.exact) return entry === rule.exact;
   return entry.startsWith(rule.prefix);
+}
+
+export function assertPackageListingAllowed(listing) {
+  const forbiddenHits = forbiddenPackagePaths.flatMap((rule) =>
+    listing.filter((entry) => matches(entry, rule)).map((entry) => ({ rule, entry }))
+  );
+  if (forbiddenHits.length > 0) {
+    const sample = forbiddenHits
+      .slice(0, 20)
+      .map(({ rule, entry }) => `- ${rule.label}: ${entry}`)
+      .join("\n");
+    throw new Error(`package contains forbidden paths:\n${sample}`);
+  }
+
+  const missing = requiredPackagePaths.filter(
+    (rule) => !listing.some((entry) => matches(entry, rule))
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `package is missing required paths: ${missing.map((rule) => rule.label).join(", ")}`
+    );
+  }
 }
 
 function inspectMarketplaceContract() {
@@ -208,25 +231,7 @@ function inspectPackage() {
       .filter(Boolean);
     const unpackedPackageDir = path.join(tmpDir, "package");
 
-    const forbiddenHits = forbiddenPackagePaths.flatMap((rule) =>
-      listing.filter((entry) => matches(entry, rule)).map((entry) => ({ rule, entry }))
-    );
-    if (forbiddenHits.length > 0) {
-      const sample = forbiddenHits
-        .slice(0, 20)
-        .map(({ rule, entry }) => `- ${rule.label}: ${entry}`)
-        .join("\n");
-      throw new Error(`package contains forbidden paths:\n${sample}`);
-    }
-
-    const missing = requiredPackagePaths.filter(
-      (rule) => !listing.some((entry) => matches(entry, rule))
-    );
-    if (missing.length > 0) {
-      throw new Error(
-        `package is missing required paths: ${missing.map((rule) => rule.label).join(", ")}`
-      );
-    }
+    assertPackageListingAllowed(listing);
     requiredPayloadTextChecks(unpackedPackageDir);
 
     const stats = fs.statSync(archivePath);

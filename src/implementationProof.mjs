@@ -499,6 +499,26 @@ export function runPlansHaveIndependentSourceContractReview(plans, evidenceList,
   return true;
 }
 
+/** require_independent_source_contract_review with allow_partial_verification. */
+export function runPlansHaveIndependentSourceContractReviewForSubstantive(plans, evidenceList, planIds) {
+  const checkpoint = partialVerificationCheckpoint(plans, evidenceList, planIds);
+  if (!checkpoint.substantive_plan_ids.length) {
+    return false;
+  }
+  const runScopedSourceContractPlans = sourceContractPlansInScope(plans, { planIds });
+  const substantiveSourceContractPlans = sourceContractPlansInScope(plans, {
+    planIds: checkpoint.substantive_plan_ids
+  });
+  if (!substantiveSourceContractPlans.length) {
+    return runScopedSourceContractPlans.length === 0;
+  }
+  return runPlansHaveIndependentSourceContractReview(
+    plans,
+    evidenceList,
+    checkpoint.substantive_plan_ids
+  );
+}
+
 export function missionSourceContractProofConfidence(plans, evidenceList, options = {}) {
   const scoped = sourceContractPlansInScope(plans, options);
   if (!scoped.length) {
@@ -849,8 +869,15 @@ export function missionNeedsRoiGo(plans, evidenceList, options = {}) {
 
 function inScopePlans(plans, options = {}) {
   const skip = new Set((options.skipPlanIds ?? []).map((id) => String(id).trim()).filter(Boolean));
+  const planIds =
+    Array.isArray(options.planIds) && options.planIds.length
+      ? new Set(options.planIds.map((id) => String(id).trim()).filter(Boolean))
+      : null;
   return (plans ?? []).filter((plan) => {
     if (skip.has(plan.id)) {
+      return false;
+    }
+    if (planIds && !planIds.has(plan.id)) {
       return false;
     }
     const targets = Array.isArray(plan.verification_targets) ? plan.verification_targets : [];

@@ -1433,6 +1433,39 @@ function recordSubstantiveRoiGo(service, missionId, plan) {
   });
 }
 
+function recordIndependentSourceContractRoiGo(service, missionId, plan) {
+  const targets = plan.verification_targets ?? [];
+  const sourceRefs = plan.source_contract_refs ?? [];
+  return service.evidenceRecord({
+    mission_id: missionId,
+    type: "verification",
+    source: "roi:go",
+    result: "pass",
+    content: {
+      plan_id: plan.id,
+      implementation_proof: {
+        oracles_ok: true,
+        diff_stat: "roi/src/service.mjs | 1 +",
+        paths_touched: ["roi/src/service.mjs"],
+        oracles_run: targets.length ? [{ cmd: targets[0], ok: true }] : [],
+        source_contract: {
+          source_refs: sourceRefs,
+          review: {
+            mode: "independent",
+            reviewer: "source-contract-reviewer",
+            evidence: "artifact-independent-review-123"
+          },
+          coverage: sourceRefs.map((sourceRef, index) => ({
+            requirement: `source contract requirement ${index + 1}`,
+            disposition: "verification_target",
+            verification_target: targets[0]
+          }))
+        }
+      }
+    }
+  });
+}
+
 function recordSubstantiveRoiGoForRun(service, missionId, run) {
   const plans = service.planList({ mission_id: missionId }).plans;
   const planIds = new Set((run.plan_ids ?? []).map((id) => String(id)));
@@ -2511,6 +2544,97 @@ test("ROI verifyEvaluate partial pass leaves non-substantive plan verify task op
     planBVerify.status,
     TaskStatus.COMPLETED,
     "non-substantive plan's verify gate must remain open after a partial pass"
+  );
+});
+
+test("ROI verifyEvaluate allow_partial independent source-contract gate checks substantive source plans", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  service.planGenerate({
+    mission_id: mission.id,
+    plans: [
+      {
+        name: "Delivered source plan",
+        actions: ["implement source-backed work"],
+        verification_targets: ['node -e "process.exit(0)"'],
+        source_contract_refs: ["docs/plans/source-a.md"],
+        requires_source_contract_check: true
+      },
+      {
+        name: "Open source plan",
+        actions: ["implement later source-backed work"],
+        verification_targets: ['node -e "process.exit(0)"'],
+        source_contract_refs: ["docs/plans/source-b.md"],
+        requires_source_contract_check: true
+      }
+    ]
+  });
+  const plans = service.planList({ mission_id: mission.id }).plans;
+  const deliveredPlan = plans.find((plan) => plan.name === "Delivered source plan");
+  const runResult = await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: plans.map((plan) => plan.id),
+    mode: "local",
+    prompt: "stub"
+  });
+  recordIndependentSourceContractRoiGo(service, mission.id, deliveredPlan);
+
+  const verified = service.verifyEvaluate({
+    run_id: runResult.run.id,
+    verdict: VerifyVerdict.PASS,
+    allow_partial_verification: true,
+    require_independent_source_contract_review: true,
+    notes: "wave 1 source-contract checkpoint"
+  });
+
+  assert.equal(verified.run.status, RunStatus.PAUSED);
+  assert.equal(verified.partial_verification_checkpoint, true);
+  assert.equal(verified.evidence.content.require_independent_source_contract_review, true);
+  assert.equal(verified.evidence.content.source_contract_proof_confidence, "independent_reviewed");
+  assert.ok(verified.next_actions.includes("roi:go"));
+  assert.ok(!verified.next_actions.includes("roi:publish"));
+});
+
+test("ROI verifyEvaluate allow_partial independent source-contract gate blocks unrelated checkpoint proof", async (t) => {
+  const { service } = createHarness(t);
+  const mission = seedMission(service);
+  service.planGenerate({
+    mission_id: mission.id,
+    plans: [
+      {
+        name: "Delivered plain plan",
+        actions: ["implement plain work"],
+        verification_targets: ['node -e "process.exit(0)"']
+      },
+      {
+        name: "Open source plan",
+        actions: ["implement source-backed work"],
+        verification_targets: ['node -e "process.exit(0)"'],
+        source_contract_refs: ["docs/plans/source-open.md"],
+        requires_source_contract_check: true
+      }
+    ]
+  });
+  const plans = service.planList({ mission_id: mission.id }).plans;
+  const plainPlan = plans.find((plan) => plan.name === "Delivered plain plan");
+  const runResult = await service.runCreate({
+    mission_id: mission.id,
+    plan_ids: plans.map((plan) => plan.id),
+    mode: "local",
+    prompt: "stub"
+  });
+  recordSubstantiveRoiGo(service, mission.id, plainPlan);
+
+  assert.throws(
+    () =>
+      service.verifyEvaluate({
+        run_id: runResult.run.id,
+        verdict: VerifyVerdict.PASS,
+        allow_partial_verification: true,
+        require_independent_source_contract_review: true,
+        notes: "plain checkpoint cannot satisfy source-contract gate"
+      }),
+    /require_independent_source_contract_review/
   );
 });
 

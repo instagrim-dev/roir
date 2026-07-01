@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { requiredPayloadTextChecks } from "../scripts/release-check.mjs";
+import { assertPackageListingAllowed, requiredPayloadTextChecks } from "../scripts/release-check.mjs";
 
 function writeFixture(root, file, text) {
   const filePath = path.join(root, file);
@@ -51,4 +51,39 @@ test("requiredPayloadTextChecks accepts payload with source-contract proof guida
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("assertPackageListingAllowed rejects internal docs plans in package payload", () => {
+  assert.throws(
+    () =>
+      assertPackageListingAllowed([
+        "package/src/service.mjs",
+        "package/skills/roi-go/SKILL.md",
+        "package/agents/planner.md",
+        "package/.cursor/rules/roi-commands.mdc",
+        "package/hooks/policy-preflight.sh",
+        "package/docs/installation.md",
+        "package/docs/plans/2026-07-01-001-fix-source-contract-residual-risks-plan.md",
+        "package/fixtures/lifecycle-verbs.json",
+        "package/scripts/release-check.mjs",
+        "package/package.json"
+      ]),
+    /internal plans/
+  );
+});
+
+test("assertPackageListingAllowed accepts operator docs without docs plans", () => {
+  assert.doesNotThrow(() =>
+    assertPackageListingAllowed([
+      "package/src/service.mjs",
+      "package/skills/roi-go/SKILL.md",
+      "package/agents/planner.md",
+      "package/.cursor/rules/roi-commands.mdc",
+      "package/hooks/policy-preflight.sh",
+      "package/docs/installation.md",
+      "package/fixtures/lifecycle-verbs.json",
+      "package/scripts/release-check.mjs",
+      "package/package.json"
+    ])
+  );
 });
