@@ -55,6 +55,37 @@ test("lifecycle helper exposes the canonical verb registry", () => {
   );
 });
 
+test("lifecycle helper preserves the documented legacy single-plan selector", (t) => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-helper-single-plan-"));
+  t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+  const dbPath = path.join(tmpDir, "single-plan.sqlite");
+  const mission = callVerb(dbPath, "mission_create", {
+    title: "Single-plan helper contract",
+    goal: "Do not broaden a documented one-plan run"
+  }).mission;
+  callVerb(dbPath, "brief_revise", {
+    mission_id: mission.id,
+    success_criteria: ["The selected plan remains the only run member"]
+  });
+  const plans = callVerb(dbPath, "plan_generate", {
+    mission_id: mission.id,
+    plans: ["A", "B"].map((name) => ({
+      name: `Plan ${name}`,
+      actions: [`implement ${name}`],
+      verification_targets: [`${name} passes`],
+      planning_orientation: planningOrientation(`Plan ${name}`, `${name} passes`)
+    }))
+  }).plans;
+
+  const run = callVerb(dbPath, "run_create", {
+    mission_id: mission.id,
+    plan_id: plans[0].id,
+    mode: "local"
+  }).run;
+  assert.deepEqual(run.plan_ids, [plans[0].id]);
+  assert.deepEqual(run.plan_refs, [{ plan_id: plans[0].id, plan_revision: 1 }]);
+});
+
 test("lifecycle helper drives editorial-loop critical path end to end", async (t) => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-helper-contract-edit-"));
   t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
@@ -85,6 +116,10 @@ test("lifecycle helper drives editorial-loop critical path end to end", async (t
         scope: "Exercise the helper end-to-end",
         actions: ["Stamp helper-driven evidence"],
         verification_targets: ["Helper round-trip persists state"],
+        planning_orientation: planningOrientation(
+          "Editorial seam",
+          "Helper round-trip persists state"
+        ),
       },
     ],
   });
@@ -97,8 +132,12 @@ test("lifecycle helper drives editorial-loop critical path end to end", async (t
   });
   assert.equal(drafted.status, "paused", "run_create should pause at verify_gate");
 
+  refreshImplementationOrientation(dbPath, missionId, planResp.plans[0], drafted.run.id, drafted.task.id);
+  refreshVerificationOrientation(dbPath, missionId, planResp.plans[0], drafted.run.id, drafted.task.id);
+
   callVerb(dbPath, "evidence_record", {
     mission_id: missionId,
+    run_id: drafted.run.id,
     type: "verification",
     source: "roi:go",
     result: "pass",
@@ -114,6 +153,8 @@ test("lifecycle helper drives editorial-loop critical path end to end", async (t
       },
     },
   });
+
+  refreshRunVerifierOrientations(dbPath, missionId, planResp.plans[0], drafted.run.id);
 
   const verdict = callVerb(dbPath, "verify_evaluate", {
     run_id: drafted.run.id,
@@ -191,6 +232,10 @@ test("lifecycle helper accepts independent source-contract verify gate", async (
         name: "Source-contract helper seam",
         actions: ["Record reviewed evidence"],
         verification_targets: ["node -e \"process.exit(0)\""],
+        planning_orientation: planningOrientation(
+          "Source-contract helper seam",
+          "node -e \"process.exit(0)\""
+        ),
         source_contract_refs: ["docs/plans/source-roadmap.md"],
         requires_source_contract_check: true,
       },
@@ -201,8 +246,11 @@ test("lifecycle helper accepts independent source-contract verify gate", async (
     mode: "local",
     prompt: "Drive source-contract helper gate",
   }).run;
+  refreshImplementationOrientation(dbPath, mission.id, plan, run.id, run.task_refs?.[0]);
+  refreshVerificationOrientation(dbPath, mission.id, plan, run.id, run.task_refs?.[0]);
   callVerb(dbPath, "evidence_record", {
     mission_id: mission.id,
+    run_id: run.id,
     type: "verification",
     source: "roi:go",
     result: "pass",
@@ -231,6 +279,7 @@ test("lifecycle helper accepts independent source-contract verify gate", async (
       },
     },
   });
+  refreshRunVerifierOrientations(dbPath, mission.id, plan, run.id);
   const verdict = callVerb(dbPath, "verify_evaluate", {
     run_id: run.id,
     verdict: "pass",
@@ -240,3 +289,80 @@ test("lifecycle helper accepts independent source-contract verify gate", async (
   assert.equal(verdict.verdict, "pass");
   assert.equal(verdict.evidence.content.source_contract_proof_confidence, "independent_reviewed");
 });
+
+function planningOrientation(owner, verificationTarget) {
+  return {
+    status: "current",
+    workspace_root: "roi-helper-test",
+    instruction_sources: ["roi/AGENTS.md"],
+    source_artifacts: ["helper contract fixture"],
+    live_state_identity: "fixture:planning-current",
+    authority_constraints: ["fixture scope only"],
+    owner_seams: [{
+      id: "OS1",
+      owner,
+      seam: "helper lifecycle seam",
+      evidence_sources: ["helper contract fixture"]
+    }],
+    material_uncertainties: [],
+    proof_obligations: [{
+      id: "PO1",
+      obligation: verificationTarget,
+      owner_seam_ids: ["OS1"],
+      verification_targets: [verificationTarget]
+    }],
+    execution_preconditions: ["plan revision is current"],
+    completion_basis: "owner_seam_coverage_and_material_uncertainty"
+  };
+}
+
+function refreshVerificationOrientation(dbPath, missionId, plan, runId = "", taskId) {
+  const targetBundle = plan.verification_targets.join("\n");
+  return callVerb(dbPath, "orientation_refresh", {
+    mission_id: missionId,
+    plan_id: plan.id,
+    plan_revision: plan.revision,
+    run_id: runId,
+    task_id: taskId,
+    plan_identity: `${plan.id}@${plan.revision}`,
+    live_state_identity: `fixture:verify:${runId || "plan"}`,
+    current_unit: targetBundle,
+    next_action: targetBundle,
+    action_class: "verifier_execution",
+    proof_obligation_ids: plan.planning_orientation.proof_obligations.map((item) => item.id),
+    proof_targets: plan.verification_targets,
+    checked_preconditions: ["plan revision and targets are current"],
+    observed_owner_seam_ids: plan.planning_orientation.owner_seams.map((item) => item.id),
+    reason: "pre_mutation"
+  });
+}
+
+function refreshImplementationOrientation(dbPath, missionId, plan, runId = "", taskId) {
+  const actionBundle = plan.actions.join("\n");
+  return callVerb(dbPath, "orientation_refresh", {
+    mission_id: missionId,
+    plan_id: plan.id,
+    plan_revision: plan.revision,
+    run_id: runId,
+    task_id: taskId,
+    plan_identity: `${plan.id}@${plan.revision}`,
+    live_state_identity: `fixture:implement:${runId || "plan"}`,
+    current_unit: actionBundle,
+    next_action: actionBundle,
+    action_class: "implementation",
+    proof_obligation_ids: plan.planning_orientation.proof_obligations.map((item) => item.id),
+    proof_targets: plan.verification_targets,
+    checked_preconditions: ["plan revision and actions are current"],
+    observed_owner_seam_ids: plan.planning_orientation.owner_seams.map((item) => item.id),
+    reason: "pre_mutation"
+  });
+}
+
+function refreshRunVerifierOrientations(dbPath, missionId, plan, runId) {
+  const tasks = callVerb(dbPath, "task_list", { run_id: runId }).tasks.filter((task) =>
+    task.plan_id === plan.id && ["spec_review", "quality_review", "verify_gate"].includes(task.payload?.stage_kind)
+  );
+  for (const task of tasks) {
+    refreshVerificationOrientation(dbPath, missionId, plan, runId, task.id);
+  }
+}

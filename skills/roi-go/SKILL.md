@@ -24,8 +24,9 @@ When `status_get.summary.next_actions` leads with `roi:go`, treat that as
 active scope:
 
 - Use the **same `mission_id`** (and plan id / wave if drive named one).
-- Prefer the **lowest wave** plan that lacks substantive verification
-  evidence, unless the operator named a specific plan.
+- Select only plans covered by current planning orientation. Within that
+  semantic scope, prefer the lowest-wave plan that lacks substantive
+  verification evidence unless the operator named a specific plan.
 - After recording evidence, return control to `roi:drive` so verify gate
   and publish can proceed.
 
@@ -40,11 +41,14 @@ operator said **drive only**), do **not** stop after a single plan:
    node roi/scripts/lifecycle.mjs status_get '{"mission_id":"<id>"}'
    ```
 
-   Inspect `mission_go_progress` (`total`, `substantive`, `open[]`) and
-   `latest_run`.
+   Inspect `mission_go_progress` (`total`, `substantive`, `open[]`),
+   `latest_run`, and `orientation_get` for the selected plan. Progress fields
+   are telemetry only; they do not establish scope or readiness.
 
-2. **Loop** until `mission_go_progress.complete` is true (or the operator
-   constrained a single plan / wave):
+2. **Loop** until the semantically declared orientation scope has no open plan
+   obligations (or the operator constrained a single plan / wave). Do not infer
+   sufficiency from a nonzero count, ratio, percentage, score, or ContextPack
+   TTL:
 
    - Pick the lowest-wave plan still lacking substantive `roi:go`
      verification **and** whose `dependencies` (plan UUIDs) already have
@@ -61,11 +65,14 @@ operator said **drive only**), do **not** stop after a single plan:
    - On oracle failure: stop with blocking plan id; do not advance to the
      next plan in the loop.
 
-3. Emit a **completion matrix**:
+3. Emit a **completion matrix** as telemetry, alongside the semantic scope and
+   current checkpoint identity:
 
    ```
    roi:go progress: {substantive}/{total} substantive passes
    open: [plan_id …] or (none)
+   orientation_scope: [owner_seam_id …]
+   checkpoint: <orientation checkpoint id/status>
    ```
 
 4. Return control to `roi:drive` — drive will run reconcile (resume paused
@@ -157,7 +164,12 @@ use wave-only selection while ignoring `dependencies`).
    `verification_targets`.
 2. Sort by `wave` ascending; within a wave, respect `dependencies` (plan
    UUIDs; plans with unsatisfied deps wait).
-3. **Pre-execution VT audit.** Before implementing actions, scan each
+3. **Require current planning orientation.** Read each stored plan's
+   `planning_orientation` from `plan_list`. Stop when it is absent, invalid,
+   missing an owner seam or proof obligation, or retains an open material
+   uncertainty. `orientation_get` is for execution checkpoint state after the
+   first refresh. Counts and ContextPack TTL cannot override this gate.
+4. **Pre-execution VT audit.** Before implementing actions, scan each
    target plan's `verification_targets` for shell-precedence-fragile or
    helper-incompatible forms (see [VT defect catalog](#vt-defect-catalog)
    below). If any VT is defective:
@@ -176,7 +188,7 @@ use wave-only selection while ignoring `dependencies`).
    plan_revise round-trip mid-execution. Catching it before the
    `evidence_record(run_oracles: true)` call keeps the implementation
    commit, the evidence row, and the plan revision aligned in one pass.
-4. **Pre-execution source-contract audit.** If a target plan has
+5. **Pre-execution source-contract audit.** If a target plan has
    `requires_source_contract_check: true` or non-empty `source_contract_refs`,
    read the referenced source artifact(s) before editing. Build a coverage
    list that maps each load-bearing source requirement to either a
@@ -189,14 +201,31 @@ use wave-only selection while ignoring `dependencies`).
    coverage row would cite a target string that is not already present in the
    plan's `verification_targets`, call `plan_revise` before implementing; do
    not defer the mismatch to `roi:verify`.
-5. For each plan, in order:
-   - Implement `actions` in the product repo (minimal diff, match
-     conventions).
-   - Run every `verification_targets` entry (shell commands, builds,
-     tests).
+6. For each plan, in order:
+   - Identify the run's concrete implement task. Before any executor dispatch,
+     bind the implementation checkpoint to both `run_id` and that `task_id`.
+     This applies to `local`, `agent`, and `a2a`; executor labels do not weaken
+     orientation authority.
+   - Immediately before each host mutation, call `orientation_refresh` with the
+     applicable mutation `action_class`, binding the current plan revision,
+     plan identity, run, live-state identity, unit, exact next action, proof
+     obligation/targets, observed owner-seam ids, and checked preconditions. Do
+     not reuse a checkpoint merely because the previous action succeeded.
+   - Implement `actions` in the product repo (minimal diff, match conventions).
+   - Immediately before **each** `verification_targets` entry, call
+     `orientation_refresh` with `action_class: verifier_execution`, that
+     verifier as the exact next action, and its property as the proof
+     obligation. Then run the target.
    - On failure: fix or stop and report blocking plan id + oracle output.
+     Invalidate with `failed_mutation` after a failed host mutation, or
+     `verifier_command_invalidation` when the verifier command or its claimed
+     proof becomes invalid. Reorient before retrying or changing action class.
    - **Before `evidence_record(result=pass)`** — satisfy the
      [implementation proof bundle](#implementation-proof-bundle) below.
+     The service also requires both mutation-class checkpoint history and
+     verifier checkpoint coverage since the latest invalidation. A verifier
+     refresh cannot substitute for the pre-mutation checkpoint. If the evidence
+     names a run, both histories must bind that run's implement task.
      Oracle exit 0 alone is not sufficient (e.g. `go test` with `[no tests
      to run]` is a **fail**).
    - On success:
@@ -351,7 +380,9 @@ durable; an inline workaround is not.
 - **Resume:** if evidence already exists for a plan with `result: pass`
   **for the current `plan.revision`**, skip unless the operator requests
   rework (`roi:edit` / `plan_revise`). After `plan_revise`, prior passes
-  are stale.
+  and checkpoints are stale under `plan_identity_change`; material revisions
+  must supply a fresh `planning_orientation`, then call
+  `orientation_invalidate` and refresh before any resumed mutation or verifier.
 
 ## Stop conditions
 
@@ -380,9 +411,15 @@ mission_id: <id>
 plans_implemented_this_invocation: [<plan_id list>]
 substantive_passes: <count>
 open_plans: [<plan_id list>] or (none)
+orientation_scope: [<owner_seam_id list>]
+checkpoint: <id/status>
 trust: agent_claimed | mcp_verified
 next_actions: <quoted from helper output>
 → <one sentence explaining what that step does>
 ```
+
+`substantive_passes` and open-plan counts are telemetry only. Report the
+semantic scope and checkpoint binding that authorized the work; never present a
+count as proof of orientation or verification sufficiency.
 
 If `next_actions` is empty, say so. Do not invent next steps.

@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { createTestService } from "./_helper-test-driver.mjs";
+import {
+  createPlanningOrientation,
+  createTestService,
+  refreshImplementationOrientation,
+  refreshVerificationOrientation
+} from "./_helper-test-driver.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -55,10 +60,12 @@ test("ROI convergence missions elect, publish, and re-elect seams via lifecycle 
         unlock_score: 1,
         evidence_confidence: 0.8,
         requires_judgment: false,
-        plan: {
+        plan: withPlanningOrientation({
+          name: "Stabilize publish boundary",
+          scope: "Make publish finalization durable",
           actions: ["Finalize seam one"],
           verification_targets: ["Seam one publishes durably"]
-        }
+        })
       },
       {
         title: "Ship remaining seam",
@@ -68,10 +75,12 @@ test("ROI convergence missions elect, publish, and re-elect seams via lifecycle 
         unlock_score: 0,
         evidence_confidence: 0.5,
         requires_judgment: false,
-        plan: {
+        plan: withPlanningOrientation({
+          name: "Ship remaining seam",
+          scope: "Finish the declared manifest",
           actions: ["Finalize seam two"],
           verification_targets: ["Seam two publishes durably"]
-        }
+        })
       }
     ]
   });
@@ -89,6 +98,13 @@ test("ROI convergence missions elect, publish, and re-elect seams via lifecycle 
   assert.equal(drafted.status, "paused");
 
   await recordSubstantiveRoiGoForRun(harness, missionId, drafted.run);
+  const firstPlan = (await harness.call("plan_list", { mission_id: missionId })).plans.find(
+    (plan) => drafted.run.plan_ids.includes(plan.id)
+  );
+  const verifyTask = (await harness.call("task_list", { run_id: drafted.run.id })).tasks.find(
+    (task) => task.plan_id === firstPlan.id && task.payload?.stage_kind === "verify_gate"
+  );
+  await refreshVerificationOrientation(harness, missionId, firstPlan, drafted.run.id, verifyTask.id);
   await harness.call("verify_evaluate", {
     run_id: drafted.run.id,
     verdict: "pass",
@@ -123,8 +139,14 @@ async function recordSubstantiveRoiGoForRun(harness, missionId, run) {
     if (!hasWork) {
       continue;
     }
+    const implementTask = (await harness.call("task_list", { run_id: run.id })).tasks.find(
+      (task) => task.plan_id === plan.id && task.payload?.stage_kind === "implement"
+    );
+    await refreshImplementationOrientation(harness, missionId, plan, run.id, implementTask.id);
+    await refreshVerificationOrientation(harness, missionId, plan, run.id, implementTask.id);
     await harness.call("evidence_record", {
       mission_id: missionId,
+      run_id: run.id,
       type: "verification",
       source: "roi:go",
       result: "pass",
@@ -139,4 +161,8 @@ async function recordSubstantiveRoiGoForRun(harness, missionId, run) {
       }
     });
   }
+}
+
+function withPlanningOrientation(plan) {
+  return { ...plan, planning_orientation: createPlanningOrientation(plan) };
 }

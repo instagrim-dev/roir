@@ -6,7 +6,8 @@
 
 ROI Rogers is an operating model for **Reusable Operational Intelligence**: an
 agent-native way to run software delivery through durable missions, plans,
-runs, reviews, evidence, and reusable capabilities instead of chat-only state.
+runs, orientation checkpoints, reviews, evidence, and reusable capabilities
+instead of chat-only state.
 
 The current package ships with:
 
@@ -112,11 +113,13 @@ After validation, wire the unpacked package into your host with
 
 5. Start with the zero-friction command:
 
-   `roi:go [mission]` then `roi:drive [mission]` (implement, then lifecycle)
+   `roi:outline [mission]` then `roi:go [mission]` and `roi:drive [mission]`
+   (orient and persist plans, implement from a current checkpoint, then advance
+   the lifecycle)
 
    The manual lifecycle remains available when you want step-by-step control:
 
-   `roi:work -> roi:brief -> roi:source -> roi:outline -> roi:draft -> roi:review -> roi:edit -> roi:publish -> roi:learn -> roi:inspect`
+   `roi:work -> roi:brief -> roi:source -> roi:outline -> roi:go -> roi:draft -> roi:review -> roi:edit -> roi:publish -> roi:learn -> roi:inspect`
 
    Convergence missions can additionally declare a maturity ladder plus a
    seam manifest, letting ROI elect one active seam at a time and carry
@@ -137,7 +140,8 @@ and what durable outcome should exist when that stage is done.
 The top-level ROI command surface is:
 
 - `roi:go` — implement plans in the product repo and record verification evidence
-- `roi:drive` — ROI lifecycle driver (runs, verify gate, publish)
+- `roi:drive` — thin ROI lifecycle orchestrator; delegates to stage skills and
+  pauses at verify and publish gates
 - `roi:work`
 - `roi:brief`
 - `roi:source`
@@ -164,6 +168,13 @@ a single lifecycle verb and which ones are compound skill-layer flows.
   package root by default; override with `ROI_SQLITE_PATH`. SQLite WAL
   handles concurrent helper invocations.
 - `roi:draft` can execute locally or pause on remote A2A work.
+- planning orientation is required before execution; `orientation_refresh`
+  persists the current plan/live-state binding before every host mutation and
+  verifier, while `orientation_invalidate`, `orientation_get`, and
+  `orientation_list` maintain and expose checkpoint state
+- plan revisions and quality-review reopens invalidate affected checkpoints;
+  progress counts and ContextPack TTL are telemetry, never execution or
+  verification sufficiency gates
 - convergence missions bind one active seam to one executable plan at a time
 - `roi:review` is the required quality gate before a run is considered ready.
 - a full `roi:review` pass completes the run only after every run plan has

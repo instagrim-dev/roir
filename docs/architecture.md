@@ -11,8 +11,9 @@ for Reusable Operational Intelligence.
   to dispatch into `ROIService` and persist state. There is no MCP
   server, daemon, or long-running process.
 - **SQLite system of record**
-  Persists missions, briefs, plans, runs, tasks, reviews, traces, evidence,
-  patterns, and capabilities in `./.data/roi.sqlite`.
+  Persists missions, briefs, plans, orientation checkpoints and refresh events,
+  runs, tasks, reviews, traces, evidence, patterns, and capabilities in
+  `./.data/roi.sqlite`.
 - **workflow engine**
   Expands plans into staged tasks and applies review gates before completion.
 - **capability registry**
@@ -27,29 +28,35 @@ flowchart LR
   A["roi:work"] --> B["roi:brief"]
   B --> C["roi:source"]
   C --> D["roi:outline"]
-  D --> E["roi:draft"]
-  E --> F["spec_review"]
-  F --> G["quality_review"]
-  G --> H["verify_gate"]
-  H --> I["roi:review"]
-  I --> J["roi:edit or roi:publish"]
-  J --> K["roi:learn"]
-  K --> L["capability proposal"]
+  D --> E["planning orientation"]
+  E --> F["orientation_refresh"]
+  F --> G["roi:go"]
+  G --> H["roi:draft / roi:run"]
+  H --> I["spec_review"]
+  I --> J["quality_review"]
+  J --> K["verify checkpoint refresh"]
+  K --> L["verify_gate"]
+  L --> M["roi:review"]
+  M --> N["roi:edit or roi:publish"]
+  N --> O["roi:learn"]
+  O --> P["capability proposal"]
 ```
 
 ## Local And Remote Execution
 
 ```mermaid
 flowchart TD
-  A["Mission + Plan"] --> B["Run created"]
-  B --> C{"Execution mode"}
-  C -->|local| D["Local executor"]
-  C -->|a2a| E["Remote A2A peer"]
-  D --> F["Evidence + Trace"]
-  E --> F
-  F --> G["Reviews"]
-  G --> H["Verify gate"]
-  H --> I["Run completed or reopened"]
+  A["Mission + current Plan"] --> B["Planning orientation"]
+  B --> C["Current execution checkpoint"]
+  C --> D{"Execution mode"}
+  D -->|local| E["Local executor"]
+  D -->|a2a| F["Remote A2A peer"]
+  E --> G["Evidence + Trace"]
+  F --> G
+  G --> H["Refresh verification checkpoint"]
+  H --> I["Reviews / verifier"]
+  I --> J["Verify gate"]
+  J --> K["Run completed, reopened, or reoriented"]
 ```
 
 ## Durable Object Model
@@ -62,7 +69,12 @@ durable, and reusable:
 - `Brief`
   Clarified problem framing, assumptions, and success criteria.
 - `Plan`
-  Executable units of work with verification targets and workflow metadata.
+  Executable units of work with verification targets, workflow metadata, and
+  the revision-owned planning orientation.
+- `OrientationCheckpoint`
+  An append-only execution or verifier refresh record binding plan revision,
+  run/task, owner seams, live-state identity, preconditions, exact next action,
+  proof obligations, and any canonical invalidation reason.
 - `Task`
   One interruptible execution unit.
 - `Run`
@@ -91,13 +103,30 @@ ROI uses a staged workflow template:
 A run is not ready for publication until the verify gate is passed. This is a
 core design choice, not a convenience feature.
 
+Execution is also orientation-gated. A host mutation or verifier may run only
+from a current checkpoint bound to the current plan revision and live state.
+The canonical invalidators are `plan_identity_change`, `compaction`, `handoff`,
+`material_live_tree_change`, `failed_mutation`,
+`verifier_command_invalidation`, `owner_seam_disappearance`, and
+`execution_capability_unavailable`. Counts and ContextPack TTL remain
+telemetry-only projections over this state.
+
+Executor labels do not alter admission: local, host-agent, and A2A implement
+tasks all require task-bound implementation orientation before dispatch.
+Deterministic spec and quality reviews are verifier stages and require their
+own task-bound checkpoints. Run-associated `roi:go` evidence binds both
+mutation and verifier history to the concrete implement task. Checkpoints also
+record an evidence-sequence floor so pre-change review orientation cannot be
+reused after newer passing `roi:go` evidence.
+
 ## Routing And Capability Activation
 
-`roi:outline` chooses a capability for a mission or plan and records a routing
-decision. `roi:draft` creates a capability activation and executes that
-capability's workflow template. Over time, ROI uses activation outcomes and
-review results to decide whether repeated work deserves a new reusable
-capability proposal.
+`roi:outline` establishes planning orientation, chooses a capability for a
+mission or plan, and records a routing decision. `roi:go` refreshes execution
+orientation before host work. `roi:draft` creates a capability activation and
+executes that capability's workflow template. Every verifier refreshes its own
+current checkpoint. Over time, ROI uses activation outcomes and review results
+to decide whether repeated work deserves a new reusable capability proposal.
 
 Reusable operational intelligence is built from evidence and outcomes, not from
 one-off execution.

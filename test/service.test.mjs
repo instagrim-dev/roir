@@ -171,6 +171,7 @@ test("ROI evidence_record requires source-contract proof before verify can compl
     () =>
       service.evidenceRecord({
         mission_id: mission.id,
+        run_id: run.id,
         type: "verification",
         source: "roi:go",
         result: "pass",
@@ -191,6 +192,7 @@ test("ROI evidence_record requires source-contract proof before verify can compl
 
   service.evidenceRecord({
     mission_id: mission.id,
+    run_id: run.id,
     type: "verification",
     source: "roi:go",
     result: "pass",
@@ -293,6 +295,7 @@ test("ROI source-contract confidence and independent-review verify gate are expl
 
   service.evidenceRecord({
     mission_id: mission.id,
+    run_id: run.id,
     type: "verification",
     source: "roi:go",
     result: "pass",
@@ -424,7 +427,7 @@ test("ROI full verify pass reconciles externally satisfied multi-plan workflow l
     "multi-plan local run should still have queued workflow tasks before external roi:go reconciliation"
   );
   for (const plan of plans) {
-    recordSubstantiveRoiGo(service, mission.id, plan);
+    recordSubstantiveRoiGo(service, mission.id, plan, runResult.run.id);
   }
 
   const verified = service.verifyEvaluate({
@@ -474,7 +477,7 @@ test("ROI verifyEvaluate pass reconciles agent handoff with review records befor
       [StageKind.VERIFY_GATE, TaskStatus.QUEUED]
     ]
   );
-  recordSubstantiveRoiGo(service, mission.id, plan);
+  recordSubstantiveRoiGo(service, mission.id, plan, run.id);
 
   const verified = service.verifyEvaluate({
     run_id: run.id,
@@ -530,7 +533,7 @@ test("ROI status_get hides superseded blocking reviews", async (t) => {
   assert.deepEqual(service.statusGet({ mission_id: mission.id }).summary.blocking_issues, []);
 });
 
-test("ROI failed spec review pauses the run and blocks later stages", async (t) => {
+test("ROI underspecified plan pauses before execution when planning orientation is impossible", async (t) => {
   const { service } = createHarness(t);
   const mission = seedMission(service, {
     plan: {
@@ -548,13 +551,13 @@ test("ROI failed spec review pauses the run and blocks later stages", async (t) 
 
   assert.equal(runResult.status, "paused");
   assert.equal(runResult.run.status, RunStatus.PAUSED);
-  assert.equal(runResult.task.payload.stage_kind, StageKind.SPEC_REVIEW);
+  assert.equal(runResult.task.payload.stage_kind, StageKind.IMPLEMENT);
+  assert.equal(runResult.task.blocking_reason, "orientation_refresh_required");
   const reviews = service.reviewList({ run_id: runResult.run.id }).reviews;
-  assert.equal(reviews[0].review_type, StageKind.SPEC_REVIEW);
-  assert.equal(reviews[0].verdict, ReviewVerdict.FAIL);
-  assert.ok(reviews[0].blocking_issues.includes("missing_verification_targets"));
+  assert.equal(reviews.length, 0);
 
   const tasks = service.taskList({ run_id: runResult.run.id }).tasks;
+  assert.equal(tasks[1].status, TaskStatus.QUEUED);
   assert.equal(tasks[2].status, TaskStatus.QUEUED);
   assert.equal(tasks[3].status, TaskStatus.QUEUED);
 });
@@ -1173,6 +1176,7 @@ test("ROI resumes a paused A2A task from persisted state and reaches verificatio
 
   const pendingExecutor = new StatefulA2AExecutor();
   const service = new ROIService({ db: firstDB, a2aExecutor: pendingExecutor });
+  installOrientationFixtureAdapter(service);
   const mission = seedMission(service);
 
   const paused = await service.runCreate({
@@ -1196,7 +1200,21 @@ test("ROI resumes a paused A2A task from persisted state and reaches verificatio
   });
   const resumedService = new ROIService({ db: secondDB, a2aExecutor: pendingExecutor });
 
-  const resumed = await resumedService.runResume({ run_id: paused.run.id });
+  let resumed = await resumedService.runResume({ run_id: paused.run.id });
+  const plan = resumedService.planList({ mission_id: mission.id }).plans[0];
+  while (
+    resumed.task?.blocking_reason === "orientation_refresh_required" &&
+    [StageKind.SPEC_REVIEW, StageKind.QUALITY_REVIEW].includes(resumed.task.payload?.stage_kind)
+  ) {
+    refreshTestVerificationOrientation(
+      resumedService,
+      plan,
+      resumed.run.id,
+      resumed.task.id
+    );
+    resumedService.taskResume({ task_id: resumed.task.id });
+    resumed = await resumedService.runResume({ run_id: resumed.run.id });
+  }
   assert.equal(resumed.status, "paused");
   assert.equal(resumed.run.status, RunStatus.PAUSED);
   assert.equal(resumed.task.payload.stage_kind, StageKind.VERIFY_GATE);
@@ -1210,6 +1228,7 @@ test("ROI convergence run resume rejects a stale seam after re-election", async 
     } catch {}
   });
   const service = new ROIService({ db, a2aExecutor: new StatefulA2AExecutor() });
+  installOrientationFixtureAdapter(service);
   const mission = seedConvergenceMission(service);
 
   const outlined = service.planGenerate({
@@ -1395,10 +1414,176 @@ function createHarness(t) {
       db.close?.();
     } catch {}
   });
-  return {
-    db,
-    service: new ROIService({ db })
+  const service = new ROIService({ db });
+  installOrientationFixtureAdapter(service);
+  return { db, service };
+}
+
+function installOrientationFixtureAdapter(service) {
+  const planGenerate = service.planGenerate.bind(service);
+  service.planGenerate = (input) => planGenerate({
+    ...input,
+    plans: input.plans?.map((plan) => withTestPlanningOrientation(plan)),
+    seams: input.seams?.map((seam) => ({
+      ...seam,
+      plan: seam.plan ? withTestPlanningOrientation(seam.plan) : seam.plan
+    }))
+  });
+
+  const planRevise = service.planRevise.bind(service);
+  service.planRevise = (input) => {
+    const current = service.planGet({ plan_id: input.plan_id }).plan;
+    const merged = { ...current, ...input };
+    return planRevise({
+      ...input,
+      planning_orientation:
+        input.planning_orientation ?? testPlanningOrientation(merged)
+    });
   };
+
+  const evidenceRecord = service.evidenceRecord.bind(service);
+  service.evidenceRecord = (input) => {
+    if (
+      input.source === "roi:go" &&
+      input.type === "verification" &&
+      input.content?.plan_id &&
+      input.result === "pass"
+    ) {
+      const plan = service.planGet({ plan_id: input.content.plan_id }).plan;
+      const implementTask = input.run_id
+        ? service.taskList({ run_id: input.run_id }).tasks.find((task) =>
+            task.plan_id === plan.id && task.payload?.stage_kind === StageKind.IMPLEMENT
+          )
+        : null;
+      if (plan.actions.length > 0) {
+        refreshTestImplementationOrientation(service, plan, input.run_id ?? "", implementTask?.id);
+      }
+      refreshTestVerificationOrientation(service, plan, input.run_id ?? "", implementTask?.id);
+    }
+    return evidenceRecord(input);
+  };
+
+  const verifyEvaluate = service.verifyEvaluate.bind(service);
+  service.verifyEvaluate = (input) => {
+    const run = service.runGet({ run_id: input.run_id }).run;
+    let scopePlanIds = input.scope_plan_ids;
+    if (input.allow_partial_verification && !scopePlanIds?.length) {
+      const progress = service.statusGet({ mission_id: run.mission_id }).summary.mission_go_progress;
+      const openPlanIds = new Set(progress.open.map((entry) => entry.plan_id));
+      scopePlanIds = run.plan_ids.filter((planId) => !openPlanIds.has(planId));
+    }
+    for (const planId of scopePlanIds?.length ? scopePlanIds : run.plan_ids) {
+      const plan = service.planGet({ plan_id: planId }).plan;
+      const verifierTasks = service.taskList({ run_id: run.id }).tasks.filter((task) =>
+        task.plan_id === planId &&
+        [StageKind.SPEC_REVIEW, StageKind.QUALITY_REVIEW, StageKind.VERIFY_GATE]
+          .includes(task.payload?.stage_kind)
+      );
+      for (const verifierTask of verifierTasks) {
+        refreshTestVerificationOrientation(service, plan, run.id, verifierTask.id);
+      }
+    }
+    return verifyEvaluate({ ...input, scope_plan_ids: scopePlanIds });
+  };
+
+  const runCreate = service.runCreate.bind(service);
+  const runResume = service.runResume.bind(service);
+  const advanceOriented = async (initialResult) => {
+    let result = initialResult;
+    while (result.failure_reason?.includes("orientation") && result.task) {
+      const plan = service.planGet({ plan_id: result.task.plan_id }).plan;
+      if (!plan.planning_orientation) {
+        return result;
+      }
+      if (result.task.payload?.stage_kind === StageKind.IMPLEMENT) {
+        refreshTestImplementationOrientation(service, plan, result.run.id, result.task.id);
+      } else {
+        refreshTestVerificationOrientation(service, plan, result.run.id, result.task.id);
+      }
+      service.taskResume({ task_id: result.task.id });
+      result = await runResume({ run_id: result.run.id });
+    }
+    return result;
+  };
+  service.runCreate = async (input) => advanceOriented(await runCreate(input));
+  service.runResume = async (input) => advanceOriented(await runResume(input));
+}
+
+function withTestPlanningOrientation(plan) {
+  if (plan.planning_orientation || !(plan.verification_targets?.length)) {
+    return plan;
+  }
+  return { ...plan, planning_orientation: testPlanningOrientation(plan) };
+}
+
+function testPlanningOrientation(plan) {
+  const targets = plan.verification_targets ?? [];
+  return {
+    status: "current",
+    workspace_root: "roi-test-workspace",
+    instruction_sources: ["roi/AGENTS.md"],
+    source_artifacts: ["test fixture"],
+    live_state_identity: "fixture:planning-current",
+    authority_constraints: ["test fixture scope only"],
+    owner_seams: [{
+      id: "OS1",
+      owner: plan.name || "test plan",
+      seam: plan.scope || "test execution seam",
+      evidence_sources: ["test fixture"]
+    }],
+    material_uncertainties: [],
+    proof_obligations: targets.map((target, index) => ({
+      id: `PO${index + 1}`,
+      obligation: target,
+      owner_seam_ids: ["OS1"],
+      verification_targets: [target]
+    })),
+    execution_preconditions: ["plan revision is current"],
+    completion_basis: "owner_seam_coverage_and_material_uncertainty"
+  };
+}
+
+function refreshTestVerificationOrientation(service, plan, runId = "", taskId) {
+  const proofIds = plan.planning_orientation.proof_obligations.map((proof) => proof.id);
+  const action = plan.verification_targets.join("\n");
+  return service.orientationRefresh({
+    mission_id: plan.mission_id,
+    plan_id: plan.id,
+    plan_revision: plan.revision,
+    run_id: runId,
+    task_id: taskId,
+    plan_identity: `${plan.id}@${plan.revision}`,
+    live_state_identity: `fixture:verify:${runId || "plan"}`,
+    current_unit: action,
+    next_action: action,
+    action_class: "verifier_execution",
+    proof_obligation_ids: proofIds,
+    proof_targets: plan.verification_targets,
+    checked_preconditions: ["plan revision and verifier targets are current"],
+    observed_owner_seam_ids: plan.planning_orientation.owner_seams.map((seam) => seam.id),
+    reason: "pre_mutation"
+  }).checkpoint;
+}
+
+function refreshTestImplementationOrientation(service, plan, runId = "", taskId) {
+  const action = plan.actions.join("\n");
+  return service.orientationRefresh({
+    mission_id: plan.mission_id,
+    plan_id: plan.id,
+    plan_revision: plan.revision,
+    run_id: runId,
+    task_id: taskId,
+    plan_identity: `${plan.id}@${plan.revision}`,
+    live_state_identity: `fixture:implement:${runId}`,
+    current_unit: action,
+    next_action: action,
+    action_class: "implementation",
+    proof_obligation_ids: plan.planning_orientation.proof_obligations.map((proof) => proof.id),
+    proof_targets: plan.verification_targets,
+    checked_preconditions: ["plan revision and action bundle are current"],
+    observed_owner_seam_ids: plan.planning_orientation.owner_seams.map((seam) => seam.id),
+    reason: "pre_mutation"
+  }).checkpoint;
 }
 
 function createTempDir(t) {
@@ -1409,7 +1594,7 @@ function createTempDir(t) {
   return dir;
 }
 
-function recordSubstantiveRoiGo(service, missionId, plan) {
+function recordSubstantiveRoiGo(service, missionId, plan, runId = "") {
   const targets = plan.verification_targets ?? [];
   const actions = plan.actions ?? [];
   if (!targets.length && !actions.length) {
@@ -1418,6 +1603,7 @@ function recordSubstantiveRoiGo(service, missionId, plan) {
   const planKey = String(plan.id).slice(-8);
   return service.evidenceRecord({
     mission_id: missionId,
+    ...(runId ? { run_id: runId } : {}),
     type: "verification",
     source: "roi:go",
     result: "pass",
@@ -1433,11 +1619,12 @@ function recordSubstantiveRoiGo(service, missionId, plan) {
   });
 }
 
-function recordIndependentSourceContractRoiGo(service, missionId, plan) {
+function recordIndependentSourceContractRoiGo(service, missionId, plan, runId = "") {
   const targets = plan.verification_targets ?? [];
   const sourceRefs = plan.source_contract_refs ?? [];
   return service.evidenceRecord({
     mission_id: missionId,
+    ...(runId ? { run_id: runId } : {}),
     type: "verification",
     source: "roi:go",
     result: "pass",
@@ -1471,7 +1658,7 @@ function recordSubstantiveRoiGoForRun(service, missionId, run) {
   const planIds = new Set((run.plan_ids ?? []).map((id) => String(id)));
   for (const plan of plans) {
     if (!planIds.size || planIds.has(plan.id)) {
-      recordSubstantiveRoiGo(service, missionId, plan);
+      recordSubstantiveRoiGo(service, missionId, plan, run.id);
     }
   }
 }
@@ -1804,6 +1991,7 @@ test("ROI run_resume completes agent implement after substantive roi:go", async 
 
   service.evidenceRecord({
     mission_id: mission.id,
+    run_id: runResult.run.id,
     type: "verification",
     source: "roi:go",
     result: "pass",
@@ -1866,6 +2054,7 @@ test("ROI run_resume advances spec_review when substantive roi:go exists", async
 
   service.evidenceRecord({
     mission_id: mission.id,
+    run_id: runResult.run.id,
     type: "verification",
     source: "roi:go",
     result: "pass",
@@ -2481,7 +2670,7 @@ test("ROI verifyEvaluate allow_partial checkpoint pass when one plan substantive
     mode: "local",
     prompt: "stub"
   });
-  recordSubstantiveRoiGo(service, mission.id, plans[0]);
+  recordSubstantiveRoiGo(service, mission.id, plans[0], runResult.run.id);
 
   const verified = service.verifyEvaluate({
     run_id: runResult.run.id,
@@ -2520,7 +2709,7 @@ test("ROI verifyEvaluate partial pass leaves non-substantive plan verify task op
     prompt: "stub"
   });
   // Only Plan A gets substantive roi:go evidence.
-  recordSubstantiveRoiGo(service, mission.id, plans[0]);
+  recordSubstantiveRoiGo(service, mission.id, plans[0], runResult.run.id);
 
   service.verifyEvaluate({
     run_id: runResult.run.id,
@@ -2577,7 +2766,7 @@ test("ROI verifyEvaluate allow_partial independent source-contract gate checks s
     mode: "local",
     prompt: "stub"
   });
-  recordIndependentSourceContractRoiGo(service, mission.id, deliveredPlan);
+  recordIndependentSourceContractRoiGo(service, mission.id, deliveredPlan, runResult.run.id);
 
   const verified = service.verifyEvaluate({
     run_id: runResult.run.id,
@@ -2595,7 +2784,7 @@ test("ROI verifyEvaluate allow_partial independent source-contract gate checks s
   assert.ok(!verified.next_actions.includes("roi:publish"));
 });
 
-test("ROI verifyEvaluate allow_partial independent source-contract gate blocks unrelated checkpoint proof", async (t) => {
+test("ROI partial verification scope does not import unrelated source-contract obligations", async (t) => {
   const { service } = createHarness(t);
   const mission = seedMission(service);
   service.planGenerate({
@@ -2623,19 +2812,17 @@ test("ROI verifyEvaluate allow_partial independent source-contract gate blocks u
     mode: "local",
     prompt: "stub"
   });
-  recordSubstantiveRoiGo(service, mission.id, plainPlan);
+  recordSubstantiveRoiGo(service, mission.id, plainPlan, runResult.run.id);
 
-  assert.throws(
-    () =>
-      service.verifyEvaluate({
-        run_id: runResult.run.id,
-        verdict: VerifyVerdict.PASS,
-        allow_partial_verification: true,
-        require_independent_source_contract_review: true,
-        notes: "plain checkpoint cannot satisfy source-contract gate"
-      }),
-    /require_independent_source_contract_review/
-  );
+  const verified = service.verifyEvaluate({
+    run_id: runResult.run.id,
+    verdict: VerifyVerdict.PASS,
+    allow_partial_verification: true,
+    scope_plan_ids: [plainPlan.id],
+    require_independent_source_contract_review: true,
+    notes: "plain checkpoint excludes unrelated source-contract plan"
+  });
+  assert.equal(verified.partial_verification_checkpoint, true);
 });
 
 test("ROI verifyEvaluate allow_partial rejects verdict partial", async (t) => {
@@ -2664,11 +2851,11 @@ test("ROI verifyEvaluate allow_partial blocked with zero substantive go", async 
         verdict: VerifyVerdict.PASS,
         allow_partial_verification: true
       }),
-    /at least one substantive/
+    /explicit scope_plan_ids/
   );
 });
 
-test("ROI status_get exposes partial_verification_eligible", async (t) => {
+test("ROI status_get does not authorize partial verification from counts without a run checkpoint", async (t) => {
   const { service } = createHarness(t);
   const mission = seedMission(service);
   service.planGenerate({
@@ -2682,7 +2869,8 @@ test("ROI status_get exposes partial_verification_eligible", async (t) => {
   recordSubstantiveRoiGo(service, mission.id, plans[0]);
   const status = service.statusGet({ mission_id: mission.id });
   const hint = status.summary.partial_verification_eligible;
-  assert.equal(hint.eligible, true);
+  assert.equal(hint.eligible, false);
+  assert.deepEqual(hint.candidate_plan_ids, []);
   assert.ok(hint.substantive_count >= 1);
   assert.ok(hint.open_count >= 1);
   assert.equal(hint.mission_complete, false);

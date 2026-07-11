@@ -6,9 +6,11 @@ platform.
 ## Current Constraints
 
 - Local SQLite is the only system of record.
-- Schema changes are handled by **reset**, not a migration ladder. Breaking
-  changes require bumping `defaultSchemaVersion` + `ROI_SCHEMA_VERSION` in
-  lockstep and deleting `.data/roi.sqlite{,-wal,-shm}`. See
+- Schema changes use an append-only forward migration-step framework; down
+  migrations are not supported. Schema v3 is additive, but historical plans
+  and runs lack orientation authority and therefore cannot resume execution or
+  pass verification until the plan is revised and a new run is created. Reset
+  remains the destructive local recovery path. See
   [`state-and-artifacts.md` → "Schema And Migrations"](./state-and-artifacts.md#schema-and-migrations).
 - The runtime depends on Node's experimental `node:sqlite` API.
 - The package is local-first. `package.json` remains marked private to prevent
@@ -19,6 +21,8 @@ platform.
 - A2A support is bounded to task-scoped delegation and local reconciliation.
 - Capability promotion is human-gated.
 - The review engine is deterministic and rule-based, not model-driven.
+- `task_transition` cannot mark service-owned workflow stages complete;
+  execution, review, and verification services own terminal stage completion.
 
 ## Two loops (v0.1)
 
@@ -27,11 +31,14 @@ ROI separates **work** from **lifecycle**:
 | Loop | Command | Helper vs agent |
 |------|---------|----------------|
 | Work | `roi:go` | Agent edits the product repo and calls `evidence_record`; `run_create` in `mode=local` does **not** implement code (stub `implement` task only). |
-| ROI | `roi:drive` | Agent orchestrates `run_create`, `verify_evaluate`, publication evidence. When proof is owed, drive **chains the `roi:go` skill** in the same invocation (unless the operator said "drive only"), then re-enters drive. |
+| ROI | `roi:drive` | Thin delegation loop over the owning stage skills. It may chain `roi:go` when proof is owed, but it records no verification verdict or publication evidence and pauses at both gates. |
 
 `verify_evaluate(pass)` is rejected when run `plan_ids` still need substantive
 `roi:go` evidence — unless **`allow_partial_verification: true`** records an
-explicit **checkpoint pass** (≥1 substantive plan, mission incomplete). That is
+explicit **checkpoint pass** over named `scope_plan_ids` whose plan revisions,
+owner seams, proof obligations, source-contract coverage, and verification
+orientation are current while the mission remains incomplete. Progress counts
+describe the scope but never authorize it. That is
 not mission completion: `next_actions` omit `roi:publish` and
 `verify_gate.partial_mission` lists open plans. **`verdict: partial`** remains
 the honest label when the verify-gate task should not complete. The caller

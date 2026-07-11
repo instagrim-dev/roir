@@ -8,14 +8,11 @@ import {
   missionNeedsRoiGo,
   missionSourceContractProofConfidence,
   partialVerificationCheckpoint,
-  partialVerificationEligible,
   pausedRunNextActions,
   runPlansHaveIndependentSourceContractReview,
-  runPlansHaveIndependentSourceContractReviewForSubstantive,
   substantiveRoiGoForPlan,
   latestRoiGoVerificationByPlan,
   runPlansHaveMcpVerifiedGoEvidence,
-  runPlansHaveMcpVerifiedGoEvidenceForSubstantive,
   validateRoiGoVerificationPass,
   defaultRoiWorkspaceRoot,
   verifyGateNextActions
@@ -36,6 +33,10 @@ import {
   DEFAULT_WORKFLOW_TEMPLATE,
   MissionStatus,
   PatternStatus,
+  PlanningOrientationSchema,
+  ExecutionOrientationCheckpointSchema,
+  ORIENTATION_INVALIDATION_TRIGGERS,
+  OrientationActionClass,
   ReviewVerdict,
   ROI_SCHEMA_VERSION,
   RunStatus,
@@ -94,6 +95,7 @@ export class ROIService {
       plans_get_latest:              db.prepare(`SELECT data_json FROM plans WHERE id = ? ORDER BY revision DESC LIMIT 1`),
       plans_max_revision:            db.prepare(`SELECT COALESCE(MAX(revision), 0) AS revision FROM plans WHERE id = ?`),
       plans_list_latest_by_mission:  db.prepare(`SELECT id, MAX(updated_at) AS latest_updated_at FROM plans WHERE mission_id = ? GROUP BY id ORDER BY latest_updated_at DESC`),
+      orientations_get_by_id:        db.prepare(`SELECT data_json FROM orientation_checkpoints WHERE id = ?`),
       runs_get_by_id:                db.prepare(`SELECT data_json FROM runs WHERE id = ?`),
       runs_list_by_mission:          db.prepare(`SELECT data_json FROM runs WHERE mission_id = ? ORDER BY updated_at DESC`),
       tasks_get_by_id:               db.prepare(`SELECT data_json FROM tasks WHERE id = ?`),
@@ -376,6 +378,7 @@ export class ROIService {
         actions: asArray(requestedPlan.actions),
         dependencies: asArray(requestedPlan.dependencies),
         verification_targets: asArray(requestedPlan.verification_targets),
+        planning_orientation: requestedPlan.planning_orientation,
         source_contract_refs: asArray(requestedPlan.source_contract_refs),
         requires_source_contract_check: Boolean(requestedPlan.requires_source_contract_check),
         status: requestedPlan.status?.trim() || "planned",
@@ -412,6 +415,23 @@ export class ROIService {
 
   planRevise(input) {
     const current = this._getLatestPlan(input.plan_id);
+    const materialOrientationFields = [
+      "name",
+      "scope",
+      "inputs",
+      "actions",
+      "dependencies",
+      "verification_targets",
+      "source_contract_refs",
+      "requires_source_contract_check",
+      "convergence_seam_id"
+    ];
+    const materialRevision = materialOrientationFields.some((field) =>
+      Object.prototype.hasOwnProperty.call(input, field)
+    );
+    if (materialRevision && !input.planning_orientation) {
+      throw new Error(`plan_revise requires fresh planning_orientation for ${current.id}`);
+    }
     if (
       current.convergence_seam_id &&
       input.convergence_seam_id &&
@@ -429,6 +449,7 @@ export class ROIService {
       actions: input.actions ?? current.actions,
       dependencies: input.dependencies ?? current.dependencies,
       verification_targets: input.verification_targets ?? current.verification_targets,
+      planning_orientation: input.planning_orientation ?? current.planning_orientation,
       source_contract_refs: input.source_contract_refs ?? current.source_contract_refs,
       requires_source_contract_check: input.requires_source_contract_check ?? current.requires_source_contract_check,
       convergence_seam_id: input.convergence_seam_id ?? current.convergence_seam_id,
@@ -471,6 +492,194 @@ export class ROIService {
     };
   }
 
+  orientationRefresh(input) {
+    const plan = this._getLatestPlan(input.plan_id);
+    this._assertExecutablePlanningOrientation(plan);
+    if (plan.mission_id !== input.mission_id) {
+      throw new Error(`plan ${plan.id} does not belong to mission ${input.mission_id}`);
+    }
+    if (plan.revision !== Number(input.plan_revision)) {
+      throw new Error(
+        `orientation_refresh blocked: plan ${plan.id} revision ${input.plan_revision} is stale; current revision is ${plan.revision}`
+      );
+    }
+    const planIdentity = `${plan.id}@${plan.revision}`;
+    if (input.plan_identity !== planIdentity) {
+      throw new Error(`orientation_refresh blocked: plan_identity must be ${planIdentity}`);
+    }
+
+    const run = input.run_id ? this._getMissionRun(plan.mission_id, input.run_id) : null;
+    if (run) {
+      this._assertRunPlanRevision(run, plan);
+    }
+    const task = input.task_id ? this._getTask(input.task_id) : null;
+    if (task) {
+      if (!run || task.run_id !== run.id || task.plan_id !== plan.id) {
+        throw new Error("orientation_refresh blocked: task must belong to the bound run and plan");
+      }
+      if (Number(task.payload?.plan_revision ?? 0) !== plan.revision) {
+        throw new Error("orientation_refresh blocked: task plan revision is stale");
+      }
+    }
+
+    const proofById = new Map(
+      plan.planning_orientation.proof_obligations.map((obligation) => [obligation.id, obligation])
+    );
+    const selectedProofs = asArray(input.proof_obligation_ids).map((id) => {
+      const proof = proofById.get(id);
+      if (!proof) {
+        throw new Error(`orientation_refresh blocked: unknown proof obligation ${id}`);
+      }
+      return proof;
+    });
+    const declaredProofTargets = unique(selectedProofs.flatMap((proof) => proof.verification_targets));
+    if (!sameStringSet(input.proof_targets, declaredProofTargets)) {
+      throw new Error("orientation_refresh blocked: proof_targets must exactly match selected proof obligations");
+    }
+
+    const verifierAction = [
+      OrientationActionClass.VERIFIER_EXECUTION,
+      OrientationActionClass.VERIFIER_RECOVERY
+    ].includes(input.action_class);
+    const declaredActions = verifierAction ? plan.verification_targets : plan.actions;
+    const bundleAction = declaredActions.join("\n");
+    if (!declaredActions.includes(input.next_action) && input.next_action !== bundleAction) {
+      throw new Error("orientation_refresh blocked: next_action is not declared by the current plan revision");
+    }
+    if (input.current_unit !== input.next_action) {
+      throw new Error("orientation_refresh blocked: current_unit must equal the declared next_action");
+    }
+    if (verifierAction && !asArray(input.proof_targets).includes(input.next_action) && input.next_action !== bundleAction) {
+      throw new Error("orientation_refresh blocked: verifier action is not covered by the selected proof targets");
+    }
+
+    const ownerSeamIds = plan.planning_orientation.owner_seams.map((seam) => seam.id);
+    if (!sameStringSet(input.observed_owner_seam_ids, ownerSeamIds)) {
+      throw new Error("orientation_refresh blocked: observed_owner_seam_ids must cover every planning owner seam");
+    }
+    if (asArray(input.checked_preconditions).length === 0) {
+      throw new Error("orientation_refresh blocked: checked_preconditions must be non-empty");
+    }
+
+    const previous = this._latestOrientationCheckpoint({
+      mission_id: plan.mission_id,
+      plan_id: plan.id,
+      run_id: run?.id ?? "",
+      task_id: task?.id ?? ""
+    });
+    if (
+      input.supersedes_checkpoint_id &&
+      input.supersedes_checkpoint_id !== previous?.id
+    ) {
+      throw new Error("orientation_refresh blocked: supersedes_checkpoint_id is not the latest checkpoint");
+    }
+    const checkpoint = this._insertOrientationCheckpoint({
+      mission_id: plan.mission_id,
+      plan_id: plan.id,
+      plan_revision: plan.revision,
+      run_id: run?.id ?? "",
+      task_id: task?.id ?? "",
+      supersedes_checkpoint_id: previous?.id ?? "",
+      status: "current",
+      plan_identity: planIdentity,
+      live_state_identity: input.live_state_identity,
+      current_unit: input.current_unit,
+      next_action: input.next_action,
+      action_class: input.action_class,
+      proof_obligation_ids: input.proof_obligation_ids,
+      proof_targets: input.proof_targets,
+      checked_preconditions: input.checked_preconditions,
+      observed_owner_seam_ids: input.observed_owner_seam_ids,
+      evidence_sequence: Number(this._stmts.evidence_count_by_mission.get(plan.mission_id)?.n ?? 0),
+      invalidated_by: [],
+      refresh_reason: input.reason
+    });
+    this._bindOrientationCheckpoint(checkpoint, run, task);
+    return mutation({ status: "ok", summary: "Execution orientation refreshed" }, { checkpoint });
+  }
+
+  orientationInvalidate(input) {
+    if (!input.checkpoint_id && input.mission_id && input.plan_id && !input.run_id && !input.task_id) {
+      const plan = this._getLatestPlan(input.plan_id);
+      if (plan.mission_id !== input.mission_id) {
+        throw new Error(`plan ${plan.id} does not belong to mission ${input.mission_id}`);
+      }
+      const checkpoints = this._invalidateCurrentOrientationsForPlan(
+        plan.id,
+        input.trigger,
+        input.reason?.trim() || input.trigger
+      );
+      if (checkpoints.length === 0) {
+        throw new Error("orientation_invalidate blocked: no current checkpoint bindings found");
+      }
+      return mutation(
+        { status: "ok", summary: "Execution orientations invalidated" },
+        { checkpoint: checkpoints[0], checkpoints }
+      );
+    }
+    const current = input.checkpoint_id
+      ? this._getOrientationCheckpoint(input.checkpoint_id)
+      : this._latestOrientationCheckpoint(input);
+    if (!current) {
+      throw new Error("orientation_invalidate blocked: checkpoint not found");
+    }
+    const latest = this._latestOrientationCheckpoint({
+      mission_id: current.mission_id,
+      plan_id: current.plan_id,
+      run_id: current.run_id,
+      task_id: current.task_id
+    });
+    if (latest?.id !== current.id || current.status !== "current") {
+      throw new Error("orientation_invalidate blocked: checkpoint is not the current binding head");
+    }
+    const checkpoint = this._insertOrientationCheckpoint({
+      ...current,
+      id: undefined,
+      supersedes_checkpoint_id: current.id,
+      status:
+        input.trigger === "execution_capability_unavailable" ? "blocked" : "stale",
+      invalidated_by: [input.trigger],
+      refresh_reason: input.trigger,
+      invalidation_reason: input.reason?.trim() || input.trigger
+    });
+    const run = checkpoint.run_id ? this._getRun(checkpoint.run_id) : null;
+    const task = checkpoint.task_id ? this._getTask(checkpoint.task_id) : null;
+    this._bindOrientationCheckpoint(checkpoint, run, task);
+    return mutation({ status: "ok", summary: "Execution orientation invalidated" }, { checkpoint });
+  }
+
+  orientationGet(input) {
+    const checkpoint = input.checkpoint_id
+      ? this._getOrientationCheckpoint(input.checkpoint_id)
+      : this._latestOrientationCheckpoint(input);
+    if (!checkpoint) {
+      throw new Error("orientation checkpoint not found");
+    }
+    return { checkpoint };
+  }
+
+  orientationList(input = {}) {
+    const clauses = [];
+    const args = [];
+    for (const [column, value] of [
+      ["mission_id", input.mission_id],
+      ["plan_id", input.plan_id],
+      ["run_id", input.run_id],
+      ["task_id", input.task_id],
+      ["status", input.status]
+    ]) {
+      if (value !== undefined && value !== "") {
+        clauses.push(`${column} = ?`);
+        args.push(value);
+      }
+    }
+    const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+    const rows = this.db.prepare(
+      `SELECT data_json FROM orientation_checkpoints${where} ORDER BY rowid DESC`
+    ).all(...args);
+    return { checkpoints: rows.map((row) => parseRowJson(row.data_json, "entity")) };
+  }
+
   taskCreate(input) {
     this._getMission(input.mission_id);
     const task = this._insertTask({
@@ -490,9 +699,15 @@ export class ROIService {
 
   taskTransition(input) {
     const task = this._getTask(input.task_id);
+    const requestedStatus = input.status?.trim() || task.status;
+    if (task.payload?.stage_kind && requestedStatus === TASK_COMPLETED) {
+      throw new Error(
+        `task_transition cannot complete service-owned ${task.payload.stage_kind} stage tasks`
+      );
+    }
     const updated = {
       ...task,
-      status: input.status?.trim() || task.status,
+      status: requestedStatus,
       checkpoint_ref: input.checkpoint_ref ?? task.checkpoint_ref,
       blocking_reason: input.blocking_reason ?? task.blocking_reason,
       retry_count: Number(input.retry_count ?? task.retry_count),
@@ -523,26 +738,37 @@ export class ROIService {
     const mission = this._getMission(input.mission_id);
     const brief = this._getLatestBrief(mission.id);
     const mode = input.mode || "local";
+    const explicitPlanIds = input.plan_ids?.length
+      ? input.plan_ids
+      : input.plan_id
+        ? [input.plan_id]
+        : [];
     const controller = this._getConvergenceController(mission.id);
     if (controller) {
       this._assertConvergenceExecutablePlanIds({
         mission_id: mission.id,
         controller,
-        plan_ids: input.plan_ids?.length ? input.plan_ids : [controller.active_plan_id]
+        plan_ids: explicitPlanIds.length ? explicitPlanIds : [controller.active_plan_id]
       });
     }
-    const plans = (input.plan_ids?.length ? input.plan_ids : controller?.active_plan_id ? [controller.active_plan_id] : this._listLatestPlans(mission.id).map((plan) => plan.id))
+    const plans = (explicitPlanIds.length ? explicitPlanIds : controller?.active_plan_id ? [controller.active_plan_id] : this._listLatestPlans(mission.id).map((plan) => plan.id))
       .map((planId) => this._getLatestPlan(planId));
 
     if (plans.length === 0) {
       throw new Error(`mission ${mission.id} has no plans`);
     }
-
+    const foreignPlans = plans.filter((plan) => plan.mission_id !== mission.id);
+    if (foreignPlans.length > 0) {
+      throw new Error(
+        `run_create plan(s) do not belong to mission ${mission.id}: ${foreignPlans.map((plan) => plan.id).join(", ")}`
+      );
+    }
     const run = this._insertRun({
       mission_id: mission.id,
       status: RUN_QUEUED,
       summary: "",
       plan_ids: plans.map((plan) => plan.id),
+      plan_refs: plans.map((plan) => ({ plan_id: plan.id, plan_revision: plan.revision })),
       capabilities_used: [],
       context_pack_refs: [],
       deliverable_refs: [],
@@ -677,6 +903,22 @@ export class ROIService {
     const missionEvidence = this.evidenceList({ mission_id: mission.id }).evidence;
 
     if (evidenceType === "quality_review") {
+      const reopening = String(input.result ?? "").trim().toLowerCase() === "reopen";
+      const affectedPlanIds = reopening
+        ? unique(asArray(content.plan_ids).length > 0 ? asArray(content.plan_ids) : asArray(run?.plan_ids))
+        : [];
+      if (reopening && affectedPlanIds.length === 0) {
+        throw new Error("quality_review reopen requires content.plan_ids or a bound run");
+      }
+      for (const planId of affectedPlanIds) {
+        const plan = this._getLatestPlan(planId);
+        if (plan.mission_id !== mission.id) {
+          throw new Error(`quality_review plan ${planId} does not belong to mission ${mission.id}`);
+        }
+      }
+      if (reopening) {
+        content.plan_ids = affectedPlanIds;
+      }
       const evidence = this._insertEvidence({
         mission_id: mission.id,
         run_id: run?.id ?? "",
@@ -686,6 +928,15 @@ export class ROIService {
         artifact_ref: input.artifact_ref?.trim() || "",
         content
       });
+      if (reopening) {
+        for (const planId of affectedPlanIds) {
+          this._invalidateCurrentOrientationsForPlan(
+            planId,
+            "verifier_command_invalidation",
+            "quality_review reopen"
+          );
+        }
+      }
       return mutation({ status: "ok", summary: "Quality review evidence recorded" }, { evidence });
     }
 
@@ -701,6 +952,15 @@ export class ROIService {
         if (planForProof.mission_id !== mission.id) {
           throw new Error(`plan ${planId} does not belong to mission ${mission.id}`);
         }
+        const suppliedRevision = content.plan_revision ?? content.planRevision;
+        if (suppliedRevision !== undefined && Number(suppliedRevision) !== planForProof.revision) {
+          throw new Error(
+            `evidence_record blocked: supplied plan revision ${suppliedRevision} is stale; current revision is ${planForProof.revision}`
+          );
+        }
+        if (run) {
+          this._assertRunPlanRevision(run, planForProof);
+        }
         content.plan_id = planId;
         content.plan_revision = planForProof.revision;
       }
@@ -713,6 +973,24 @@ export class ROIService {
         planId: planForProof.id
       });
     }
+    const passAttempt = String(input.result ?? "").trim().toLowerCase() === "pass";
+    const implementTask = run && planForProof
+      ? this._listRunTasks(run.id).find((task) =>
+          task.plan_id === planForProof.id && task.payload?.stage_kind === StageKind.IMPLEMENT
+        )
+      : null;
+    if (
+      passAttempt &&
+      source === "roi:go" &&
+      evidenceType === "verification" &&
+      planForProof &&
+      planForProof.actions.length > 0
+    ) {
+      if (run && !implementTask) {
+        throw new Error(`evidence_record requires an implement task for plan ${planForProof.id}`);
+      }
+      this._assertImplementationOrientationCoverage({ plan: planForProof, run, task: implementTask });
+    }
     if (input.run_oracles === true) {
       if (source !== "roi:go" || evidenceType !== "verification") {
         throw new Error("run_oracles is only supported for roi:go verification evidence");
@@ -720,12 +998,15 @@ export class ROIService {
       if (!planForProof) {
         throw new Error("run_oracles requires content.plan_id for a mission plan");
       }
+      this._assertVerificationOrientationCoverage({
+        plan: planForProof,
+        run,
+        task: implementTask,
+        requireBundle: true
+      });
       const { oracles_ok: mcpOraclesOk } = applyMcpOracleVerification(content, planForProof, {
         workspaceRoot: defaultRoiWorkspaceRoot()
       });
-      const passAttempt = String(input.result ?? "")
-        .trim()
-        .toLowerCase() === "pass";
       if (passAttempt && !mcpOraclesOk) {
         throw new Error(
           "evidence_record blocked: run_oracles failed one or more verification_targets"
@@ -750,6 +1031,15 @@ export class ROIService {
         porcelainCheck: Boolean(input.product_tree)
       }
     );
+    if (
+      passAttempt &&
+      input.run_oracles !== true &&
+      source === "roi:go" &&
+      evidenceType === "verification" &&
+      planForProof
+    ) {
+      this._assertVerificationOrientationCoverage({ plan: planForProof, run, task: implementTask });
+    }
     const controller = this._getConvergenceController(input.mission_id);
     if (controller && ["publication", "handoff"].includes(evidenceType)) {
       this._assertConvergencePublicationRun({ controller, run });
@@ -1074,6 +1364,9 @@ export class ROIService {
 
   verifyEvaluate(input) {
     const run = this._getRun(input.run_id);
+    for (const planId of run.plan_ids) {
+      this._assertRunPlanRevision(run, this._getLatestPlan(planId));
+    }
     const verdict = input.verdict?.trim() || VerifyVerdict.PASS;
     const allowPartial = input.allow_partial_verification === true;
     if (allowPartial && verdict !== VerifyVerdict.PASS) {
@@ -1086,8 +1379,9 @@ export class ROIService {
     const missionEvidence = this.evidenceList({ mission_id: run.mission_id }).evidence;
     const brief = this._getLatestBrief(run.mission_id);
     const checkpoint = partialVerificationCheckpoint(missionPlans, missionEvidence, run.plan_ids);
-    const partialCheckpoint = allowPartial && checkpoint.partial_checkpoint;
-    const verifyScopePlanIds = partialCheckpoint ? checkpoint.substantive_plan_ids : run.plan_ids;
+    const partialCheckpoint = allowPartial;
+    const requestedScopePlanIds = unique(asArray(input.scope_plan_ids));
+    const verifyScopePlanIds = partialCheckpoint ? requestedScopePlanIds : run.plan_ids;
     const policyStrict = missionRequiresHelperVerifiedProof(brief);
     const requireVerifiedProof =
       input.require_verified_proof === true ||
@@ -1095,10 +1389,23 @@ export class ROIService {
     const requireIndependentSourceContractReview =
       input.require_independent_source_contract_review === true;
 
-    if (verdict === VerifyVerdict.PASS && allowPartial && !checkpoint.allowed) {
-      throw new Error(
-        "verify_evaluate(pass) blocked: allow_partial_verification requires at least one substantive roi:go plan in run scope"
-      );
+    if (allowPartial) {
+      if (requestedScopePlanIds.length === 0) {
+        throw new Error("verify_evaluate partial pass requires explicit scope_plan_ids");
+      }
+      const outsideRun = requestedScopePlanIds.filter((planId) => !run.plan_ids.includes(planId));
+      if (outsideRun.length > 0) {
+        throw new Error(`verify_evaluate partial scope is outside the run: ${outsideRun.join(", ")}`);
+      }
+      const missingProof = requestedScopePlanIds.filter((planId) => {
+        const plan = missionPlans.find((candidate) => candidate.id === planId);
+        return !plan || !substantiveRoiGoForPlan(missionEvidence, planId, missionPlans);
+      });
+      if (missingProof.length > 0) {
+        throw new Error(
+          `verify_evaluate partial scope lacks substantive current-revision proof: ${missingProof.join(", ")}`
+        );
+      }
     }
     if (
       verdict === VerifyVerdict.PASS &&
@@ -1111,7 +1418,7 @@ export class ROIService {
     }
     if (verdict === VerifyVerdict.PASS && requireVerifiedProof) {
       const mcpOk = partialCheckpoint
-        ? runPlansHaveMcpVerifiedGoEvidenceForSubstantive(missionPlans, missionEvidence, run.plan_ids)
+        ? runPlansHaveMcpVerifiedGoEvidence(missionPlans, missionEvidence, verifyScopePlanIds)
         : runPlansHaveMcpVerifiedGoEvidence(missionPlans, missionEvidence, run.plan_ids);
       if (!mcpOk) {
         throw new Error(
@@ -1123,10 +1430,8 @@ export class ROIService {
       verdict === VerifyVerdict.PASS &&
       requireIndependentSourceContractReview &&
       !(partialCheckpoint
-        ? runPlansHaveIndependentSourceContractReviewForSubstantive(
-            missionPlans,
-            missionEvidence,
-            run.plan_ids
+        ? runPlansHaveIndependentSourceContractReview(
+            missionPlans, missionEvidence, verifyScopePlanIds
           )
         : runPlansHaveIndependentSourceContractReview(missionPlans, missionEvidence, run.plan_ids))
     ) {
@@ -1137,7 +1442,8 @@ export class ROIService {
     const content = {
       notes: input.notes?.trim() || "",
       brief_revision: brief?.revision ?? 0,
-      plan_ids: run.plan_ids,
+      plan_ids: partialCheckpoint ? verifyScopePlanIds : run.plan_ids,
+      ...(partialCheckpoint ? { run_plan_ids: run.plan_ids } : {}),
       verification_policy: missionVerificationPolicyFromBrief(brief),
       source_contract_proof_confidence: missionSourceContractProofConfidence(missionPlans, missionEvidence, {
         planIds: verifyScopePlanIds
@@ -1146,8 +1452,24 @@ export class ROIService {
     if (requireIndependentSourceContractReview) {
       content.require_independent_source_contract_review = true;
     }
+    for (const planId of verifyScopePlanIds) {
+      const plan = this._getLatestPlan(planId);
+      const verifyTask = this._listRunTasks(run.id).find((task) =>
+        task.plan_id === planId && task.payload?.stage_kind === StageKind.VERIFY_GATE
+      );
+      if (!verifyTask) {
+        throw new Error(`verify_evaluate requires a verify-gate task for plan ${planId}`);
+      }
+      const checkpoint = this._assertVerificationOrientationCoverage({
+        plan,
+        run,
+        task: verifyTask,
+        requireBundle: input.run_oracles === true
+      });
+      this._assertVerifierCheckpointAfterLatestGo({ checkpoint, plan, run });
+    }
     if (input.run_oracles === true) {
-      const oraclePlanIds = partialCheckpoint ? checkpoint.substantive_plan_ids : run.plan_ids;
+      const oraclePlanIds = verifyScopePlanIds;
       const plans = oraclePlanIds.map((planId) => this._getLatestPlan(planId));
       const { oracles_ok: gateOraclesOk } = applyVerifyGateOracleVerification(content, plans, {
         workspaceRoot: defaultRoiWorkspaceRoot()
@@ -1160,7 +1482,7 @@ export class ROIService {
     }
     if (verdict === VerifyVerdict.PASS) {
       this._reconcileRunTasksBeforeVerifyPass(run, {
-        planIds: partialCheckpoint ? checkpoint.substantive_plan_ids : run.plan_ids
+        planIds: verifyScopePlanIds
       });
     }
     if (partialCheckpoint) {
@@ -1168,8 +1490,8 @@ export class ROIService {
         ...(content.verify_gate && typeof content.verify_gate === "object" ? content.verify_gate : {}),
         partial_mission: true,
         open_plans: checkpoint.open_plans,
-        substantive_plan_ids: checkpoint.substantive_plan_ids,
-        substantive_count: checkpoint.substantive_count,
+        substantive_plan_ids: verifyScopePlanIds,
+        substantive_count: verifyScopePlanIds.length,
         open_count: checkpoint.open_count
       };
     }
@@ -1194,7 +1516,7 @@ export class ROIService {
     // unverified plans (lifecycle gate bypass).
     const completableVerifyTasks = partialCheckpoint
       ? verifyTasks.filter((task) =>
-          checkpoint.substantive_plan_ids.includes(task.plan_id)
+          verifyScopePlanIds.includes(task.plan_id)
         )
       : verifyTasks;
 
@@ -1430,8 +1752,10 @@ export class ROIService {
         blocking_issues: this._activeBlockingIssues(mission_id, reviews),
         learning_readiness: this._enlightenmentReadiness(mission_id),
         convergence,
+        orientations: this._orientationSummary(mission_id),
         mission_go_progress: this._missionGoProgress(mission_id),
         partial_verification_eligible: this._partialVerificationEligible(mission_id),
+        partial_verification_candidates: this._partialVerificationCandidates(mission_id),
         implementation_proof_trust: this._missionImplementationProofTrust(mission_id),
         source_contract_proof_confidence: this._missionSourceContractProofConfidence(mission_id),
         next_actions: this._nextActions(mission_id)
@@ -1535,10 +1859,53 @@ export class ROIService {
 
   async _executeImplementStage(runId, task, input) {
     const run = this._getRun(runId);
+    const plan = this._getLatestPlan(task.plan_id);
+    this._assertRunPlanRevision(run, plan);
+    const activation = this._getActivation(task.payload.activation_id);
+    const missionEvidence = this.evidenceList({ mission_id: run.mission_id }).evidence;
+    const plans = this._listLatestPlans(run.mission_id);
+    const currentRunGoEvidence = latestRoiGoVerificationByPlan(missionEvidence).get(plan.id);
+    if (
+      substantiveRoiGoForPlan(missionEvidence, plan.id, plans) &&
+      currentRunGoEvidence?.run_id === run.id
+    ) {
+      if ((task.payload.executor_mode || "local") === "agent") {
+        return this._completeAgentImplementFromGo(run, task, plan, activation, missionEvidence);
+      }
+      return this._completeImplementTaskFromGo(run, task, plan, activation, currentRunGoEvidence);
+    }
+    const executorMode = task.payload.executor_mode || "local";
+    try {
+      this._assertCurrentOrientation({
+        plan,
+        run,
+        task,
+        actionClasses: [OrientationActionClass.IMPLEMENTATION]
+      });
+    } catch (error) {
+      const pausedTask = this._updateTask({
+        ...task,
+        status: TASK_INPUT_REQUIRED,
+        blocking_reason: "orientation_refresh_required"
+      });
+      this._updateActivation({ ...activation, status: RUN_PAUSED });
+      const pausedRun = this._updateRun({
+        ...run,
+        status: RUN_PAUSED,
+        summary: String(error.message || error)
+      });
+      return mutation(
+        {
+          status: "paused",
+          summary: "Execution orientation required",
+          next_actions: ["roi:go", "roi:inspect"],
+          failure_reason: String(error.message || error)
+        },
+        { run: pausedRun, task: pausedTask }
+      );
+    }
     const startedTask = this._updateTask({ ...task, status: TASK_RUNNING, blocking_reason: "" });
-    const activation = this._getActivation(startedTask.payload.activation_id);
     this._updateActivation({ ...activation, status: RUN_RUNNING });
-    const plan = this._getLatestPlan(startedTask.plan_id);
     const subject = input.prompt?.trim() || input.a2a_message?.trim() || startedTask.payload?.prompt || plan.actions.join(" ");
     const policyDecision = this._insertPolicyDecision(this.policyEvaluator({
       mission_id: run.mission_id,
@@ -1583,7 +1950,6 @@ export class ROIService {
         }, { run: blockedRun, task: blockedTask, policy_decision: policyDecision, trace });
     }
 
-    const executorMode = startedTask.payload.executor_mode || "local";
     if (executorMode === "a2a") {
       return this._executeImplementA2A(run, startedTask, plan, activation, input);
     }
@@ -1719,6 +2085,11 @@ export class ROIService {
     if (!goEvidence?.id) {
       throw new Error(`verify_evaluate(pass) blocked: plan ${plan.id} lacks substantive roi:go evidence`);
     }
+    if (goEvidence.run_id !== run.id) {
+      throw new Error(`run ${run.id} requires task-bound roi:go evidence for plan ${plan.id}`);
+    }
+    this._assertImplementationOrientationCoverage({ plan, run, task });
+    this._assertVerificationOrientationCoverage({ plan, run, task });
     const outputPrefix = options.outputPrefix || "IMPLEMENT_COMPLETED_FROM_ROI_GO";
     const output = `${outputPrefix}\nroi:go evidence ${goEvidence.id}`;
     const evidence = this._insertEvidence({
@@ -1977,6 +2348,32 @@ export class ROIService {
 
   _executeReviewStage(runId, task) {
     const run = this._getRun(runId);
+    const plan = this._getLatestPlan(task.plan_id);
+    this._assertRunPlanRevision(run, plan);
+    try {
+      const checkpoint = this._assertVerificationOrientationCoverage({ plan, run, task });
+      this._assertVerifierCheckpointAfterLatestGo({ checkpoint, plan, run });
+    } catch (error) {
+      const pausedTask = this._updateTask({
+        ...task,
+        status: TASK_INPUT_REQUIRED,
+        blocking_reason: "orientation_refresh_required"
+      });
+      const pausedRun = this._updateRun({
+        ...run,
+        status: RUN_PAUSED,
+        summary: String(error.message || error)
+      });
+      return mutation(
+        {
+          status: "paused",
+          summary: "Review orientation required",
+          next_actions: ["roi:review", "roi:inspect"],
+          failure_reason: String(error.message || error)
+        },
+        { run: pausedRun, task: pausedTask }
+      );
+    }
     const startedTask = this._updateTask({ ...task, status: TASK_RUNNING, blocking_reason: "" });
     const review = this._evaluateReviewPack(run, startedTask);
     const record = this._insertReviewRecord({
@@ -2121,6 +2518,9 @@ export class ROIService {
     const tasks = this._listRunTasks(run.id);
     const allCompleted = tasks.length > 0 && tasks.every((task) => task.status === TASK_COMPLETED);
     if (allCompleted) {
+      if (!this._runHasFullVerificationPass(run)) {
+        throw new Error(`run ${run.id} cannot complete without a full verify.evaluate pass`);
+      }
       run = this._updateRun({
         ...run,
         status: RUN_COMPLETED,
@@ -2275,7 +2675,8 @@ export class ROIService {
           prompt: input.prompt || plan.actions.join("\n"),
           executor_mode: mode,
           a2a_agent_card_url: input.a2a_agent_card_url?.trim() || "",
-          verification_targets: plan.verification_targets
+          verification_targets: plan.verification_targets,
+          plan_revision: plan.revision
         }
       });
       tasks.push(task);
@@ -2481,6 +2882,7 @@ export class ROIService {
         actions: asArray(planDraft.actions).length ? asArray(planDraft.actions) : [seamInput.summary?.trim() || seamInput.title.trim()],
         dependencies: asArray(planDraft.dependencies),
         verification_targets: asArray(planDraft.verification_targets),
+        planning_orientation: planDraft.planning_orientation,
         source_contract_refs: asArray(planDraft.source_contract_refs),
         requires_source_contract_check: Boolean(planDraft.requires_source_contract_check),
         status: planDraft.status?.trim() || "planned",
@@ -2854,6 +3256,286 @@ export class ROIService {
     return row ? parseRowJson(row.data_json, "entity") : null;
   }
 
+  _assertExecutablePlanningOrientation(plan) {
+    const parsed = PlanningOrientationSchema.safeParse(plan.planning_orientation);
+    if (!parsed.success) {
+      throw new Error(`plan ${plan.id} requires current planning_orientation before execution`);
+    }
+    const orientation = parsed.data;
+    const open = orientation.material_uncertainties.filter((item) => item.status === "open");
+    if (open.length > 0) {
+      throw new Error(
+        `plan ${plan.id} planning_orientation has open material uncertainty: ${open.map((item) => item.id).join(", ")}`
+      );
+    }
+    const targets = new Set(plan.verification_targets);
+    const coveredTargets = new Set();
+    const coveredOwnerSeams = new Set();
+    for (const obligation of orientation.proof_obligations) {
+      const unknownTargets = obligation.verification_targets.filter((target) => !targets.has(target));
+      if (unknownTargets.length > 0) {
+        throw new Error(
+          `plan ${plan.id} proof obligation ${obligation.id} references undeclared verification target(s): ${unknownTargets.join(", ")}`
+        );
+      }
+      obligation.verification_targets.forEach((target) => coveredTargets.add(target));
+      obligation.owner_seam_ids.forEach((ownerSeamId) => coveredOwnerSeams.add(ownerSeamId));
+    }
+    const uncoveredTargets = plan.verification_targets.filter((target) => !coveredTargets.has(target));
+    if (uncoveredTargets.length > 0) {
+      throw new Error(
+        `plan ${plan.id} planning_orientation does not cover verification target(s): ${uncoveredTargets.join(", ")}`
+      );
+    }
+    const uncoveredOwnerSeams = orientation.owner_seams
+      .map((seam) => seam.id)
+      .filter((ownerSeamId) => !coveredOwnerSeams.has(ownerSeamId));
+    if (uncoveredOwnerSeams.length > 0) {
+      throw new Error(
+        `plan ${plan.id} planning_orientation does not cover owner seam(s): ${uncoveredOwnerSeams.join(", ")}`
+      );
+    }
+    return orientation;
+  }
+
+  _assertRunPlanRevision(run, plan) {
+    const refs = asArray(run.plan_refs);
+    const ref = refs.find((candidate) => candidate.plan_id === plan.id);
+    if (!ref) {
+      throw new Error(`run ${run.id} is not bound to plan ${plan.id}`);
+    }
+    if (Number(ref.plan_revision) !== plan.revision) {
+      throw new Error(
+        `run ${run.id} is stale for plan ${plan.id}: bound revision ${ref.plan_revision}, current revision ${plan.revision}`
+      );
+    }
+    return ref;
+  }
+
+  _insertOrientationCheckpoint(data) {
+    const checkpoint = ExecutionOrientationCheckpointSchema.parse({
+      ...data,
+      schema_version: ROI_SCHEMA_VERSION,
+      id: data.id || newId("orientation"),
+      created_at: this.now().toISOString()
+    });
+    this.db.prepare(`
+      INSERT INTO orientation_checkpoints (
+        id, mission_id, plan_id, plan_revision, run_id, task_id, status, data_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      checkpoint.id,
+      checkpoint.mission_id,
+      checkpoint.plan_id,
+      checkpoint.plan_revision,
+      checkpoint.run_id,
+      checkpoint.task_id,
+      checkpoint.status,
+      json(checkpoint),
+      checkpoint.created_at
+    );
+    return checkpoint;
+  }
+
+  _getOrientationCheckpoint(checkpointId) {
+    const row = this._stmts.orientations_get_by_id.get(checkpointId);
+    if (!row) {
+      throw new Error(`orientation checkpoint ${checkpointId} not found`);
+    }
+    return parseRowJson(row.data_json, "entity");
+  }
+
+  _latestOrientationCheckpoint(input = {}) {
+    const clauses = [];
+    const args = [];
+    for (const [column, value] of [
+      ["mission_id", input.mission_id],
+      ["plan_id", input.plan_id],
+      ["run_id", input.run_id],
+      ["task_id", input.task_id]
+    ]) {
+      if (value !== undefined) {
+        clauses.push(`${column} = ?`);
+        args.push(value ?? "");
+      }
+    }
+    if (clauses.length === 0) {
+      return null;
+    }
+    const row = this.db.prepare(
+      `SELECT data_json FROM orientation_checkpoints WHERE ${clauses.join(" AND ")} ORDER BY rowid DESC LIMIT 1`
+    ).get(...args);
+    return row ? parseRowJson(row.data_json, "entity") : null;
+  }
+
+  _bindOrientationCheckpoint(checkpoint, run = null, task = null) {
+    if (run) {
+      this._updateRun({
+        ...run,
+        checkpoint_refs: unique([...asArray(run.checkpoint_refs), checkpoint.id])
+      });
+    }
+    if (task) {
+      this._updateTask({ ...task, checkpoint_ref: checkpoint.id });
+    }
+  }
+
+  _assertCurrentOrientation({ plan, run = null, task = null, actionClasses = [] }) {
+    this._assertExecutablePlanningOrientation(plan);
+    if (run) {
+      this._assertRunPlanRevision(run, plan);
+    }
+    const checkpoint = this._latestOrientationCheckpoint({
+      mission_id: plan.mission_id,
+      plan_id: plan.id,
+      run_id: run?.id ?? "",
+      task_id: task?.id ?? ""
+    });
+    if (!checkpoint || checkpoint.status !== "current") {
+      throw new Error(`orientation checkpoint required for plan ${plan.id}@${plan.revision}`);
+    }
+    if (checkpoint.plan_revision !== plan.revision || checkpoint.plan_identity !== `${plan.id}@${plan.revision}`) {
+      throw new Error(`orientation checkpoint is stale for plan ${plan.id}@${plan.revision}`);
+    }
+    if (actionClasses.length > 0 && !actionClasses.includes(checkpoint.action_class)) {
+      throw new Error(
+        `orientation checkpoint action_class ${checkpoint.action_class || "missing"} is not admitted here`
+      );
+    }
+    return checkpoint;
+  }
+
+  _assertVerificationOrientationCoverage({ plan, run = null, task = null, requireBundle = false }) {
+    const orientation = this._assertExecutablePlanningOrientation(plan);
+    if (run) {
+      this._assertRunPlanRevision(run, plan);
+    }
+    if (task && (!run || task.run_id !== run.id || task.plan_id !== plan.id)) {
+      throw new Error("verification orientation task binding does not match run and plan");
+    }
+    const rows = this.db.prepare(`
+      SELECT data_json
+      FROM orientation_checkpoints
+      WHERE mission_id = ? AND plan_id = ? AND plan_revision = ? AND run_id = ? AND task_id = ?
+      ORDER BY rowid DESC
+    `).all(plan.mission_id, plan.id, plan.revision, run?.id ?? "", task?.id ?? "");
+    const active = [];
+    for (const row of rows) {
+      const checkpoint = parseRowJson(row.data_json, "entity");
+      if (["stale", "blocked"].includes(checkpoint.status)) {
+        break;
+      }
+      if (checkpoint.status === "current") {
+        active.push(checkpoint);
+      }
+    }
+    if (active.length === 0) {
+      throw new Error(`verification orientation required for plan ${plan.id}@${plan.revision}`);
+    }
+    const ownerSeamIds = orientation.owner_seams.map((seam) => seam.id);
+    for (const checkpoint of active) {
+      if (
+        checkpoint.plan_identity !== `${plan.id}@${plan.revision}` ||
+        !sameStringSet(checkpoint.observed_owner_seam_ids, ownerSeamIds)
+      ) {
+        throw new Error(`verification orientation is stale or incomplete for plan ${plan.id}`);
+      }
+    }
+    const verifierCheckpoints = active.filter((checkpoint) =>
+      [OrientationActionClass.VERIFIER_EXECUTION, OrientationActionClass.VERIFIER_RECOVERY]
+        .includes(checkpoint.action_class)
+    );
+    const bundle = plan.verification_targets.join("\n");
+    if (requireBundle) {
+      const latest = active[0];
+      if (
+        !verifierCheckpoints.includes(latest) ||
+        latest.next_action !== bundle ||
+        !sameStringSet(latest.proof_targets, plan.verification_targets)
+      ) {
+        throw new Error(
+          `helper-run oracle bundle requires a current checkpoint covering every verification target for plan ${plan.id}`
+        );
+      }
+      return latest;
+    }
+    const missingTargets = plan.verification_targets.filter((target) =>
+      !verifierCheckpoints.some((checkpoint) =>
+        checkpoint.proof_targets.includes(target) &&
+        (checkpoint.next_action === target || checkpoint.next_action === bundle)
+      )
+    );
+    if (missingTargets.length > 0) {
+      throw new Error(
+        `verification orientation is missing target checkpoint(s) for plan ${plan.id}: ${missingTargets.join(", ")}`
+      );
+    }
+    return verifierCheckpoints[0];
+  }
+
+  _assertImplementationOrientationCoverage({ plan, run = null, task = null }) {
+    this._assertExecutablePlanningOrientation(plan);
+    if (run) {
+      this._assertRunPlanRevision(run, plan);
+    }
+    if (task && (!run || task.run_id !== run.id || task.plan_id !== plan.id)) {
+      throw new Error("implementation orientation task binding does not match run and plan");
+    }
+    const rows = this.db.prepare(`
+      SELECT data_json
+      FROM orientation_checkpoints
+      WHERE mission_id = ? AND plan_id = ? AND plan_revision = ? AND run_id = ? AND task_id = ?
+      ORDER BY rowid DESC
+    `).all(plan.mission_id, plan.id, plan.revision, run?.id ?? "", task?.id ?? "");
+    const mutationClasses = new Set([
+      OrientationActionClass.IMPLEMENTATION,
+      OrientationActionClass.REVIEW_AUTOFIX,
+      OrientationActionClass.RESIDUAL_REMEDIATION,
+      OrientationActionClass.GENERATED_ARTIFACT_UPDATE,
+      OrientationActionClass.COMMIT_PREPARATION
+    ]);
+    const activeMutationCheckpoints = [];
+    for (const row of rows) {
+      const checkpoint = parseRowJson(row.data_json, "entity");
+      if (["stale", "blocked"].includes(checkpoint.status)) {
+        break;
+      }
+      if (
+        checkpoint.status === "current" &&
+        checkpoint.plan_identity === `${plan.id}@${plan.revision}` &&
+        mutationClasses.has(checkpoint.action_class)
+      ) {
+        activeMutationCheckpoints.push(checkpoint);
+      }
+    }
+    const actionBundle = plan.actions.join("\n");
+    const missingActions = plan.actions.filter((action) =>
+      !activeMutationCheckpoints.some((checkpoint) =>
+        checkpoint.next_action === action || checkpoint.next_action === actionBundle
+      )
+    );
+    if (missingActions.length > 0) {
+      throw new Error(
+        `implementation orientation is missing action checkpoint(s) for plan ${plan.id}: ${missingActions.join(", ")}`
+      );
+    }
+    return activeMutationCheckpoints[0];
+  }
+
+  _assertVerifierCheckpointAfterLatestGo({ checkpoint, plan, run }) {
+    const latestGo = this.evidenceList({ mission_id: plan.mission_id, run_id: run?.id }).evidence.find((evidence) =>
+      evidence.source === "roi:go" &&
+      String(evidence.result).toLowerCase() === "pass" &&
+      String(evidence.content?.plan_id ?? "") === plan.id
+    );
+    if (latestGo && Number(checkpoint.evidence_sequence ?? 0) < Number(latestGo.sequence ?? 0)) {
+      throw new Error(
+        `verification orientation for plan ${plan.id} predates latest roi:go evidence ${latestGo.id}`
+      );
+    }
+    return checkpoint;
+  }
+
   _insertPlan(data) {
     const revision = Number(this._stmts.plans_max_revision.get(data.id)?.revision ?? 0) + 1;
     const timestamp = this.now().toISOString();
@@ -2868,6 +3550,9 @@ export class ROIService {
       actions: asArray(data.actions),
       dependencies: asArray(data.dependencies),
       verification_targets: asArray(data.verification_targets),
+      planning_orientation: data.planning_orientation
+        ? PlanningOrientationSchema.parse(data.planning_orientation)
+        : null,
       source_contract_refs: asArray(data.source_contract_refs),
       requires_source_contract_check: Boolean(data.requires_source_contract_check),
       capability_id: data.capability_id ?? "",
@@ -2879,11 +3564,51 @@ export class ROIService {
       created_at: timestamp,
       updated_at: timestamp
     };
+    if (plan.planning_orientation) {
+      this._assertExecutablePlanningOrientation(plan);
+    }
     this.db.prepare(`
       INSERT INTO plans (id, revision, mission_id, data_json, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(plan.id, plan.revision, plan.mission_id, json(plan), plan.created_at, plan.updated_at);
+    if (revision > 1) {
+      this._invalidateCurrentOrientationsForPlan(plan.id, "plan_identity_change");
+    }
     return plan;
+  }
+
+  _invalidateCurrentOrientationsForPlan(planId, trigger, reason = trigger) {
+    if (!ORIENTATION_INVALIDATION_TRIGGERS.includes(trigger)) {
+      throw new Error(`unknown orientation invalidation trigger: ${trigger}`);
+    }
+    const history = this.orientationList({ plan_id: planId }).checkpoints;
+    const latestByBinding = new Map();
+    for (const checkpoint of history) {
+      const key = `${checkpoint.run_id}\u0000${checkpoint.task_id}`;
+      if (!latestByBinding.has(key)) {
+        latestByBinding.set(key, checkpoint);
+      }
+    }
+    const invalidated = [];
+    for (const checkpoint of latestByBinding.values()) {
+      if (checkpoint.status !== "current") {
+        continue;
+      }
+      const stale = this._insertOrientationCheckpoint({
+        ...checkpoint,
+        id: undefined,
+        supersedes_checkpoint_id: checkpoint.id,
+        status: trigger === "execution_capability_unavailable" ? "blocked" : "stale",
+        invalidated_by: [trigger],
+        invalidation_reason: reason,
+        refresh_reason: trigger
+      });
+      const run = stale.run_id ? this._getRun(stale.run_id) : null;
+      const task = stale.task_id ? this._getTask(stale.task_id) : null;
+      this._bindOrientationCheckpoint(stale, run, task);
+      invalidated.push(stale);
+    }
+    return invalidated;
   }
 
   _getLatestPlan(planId) {
@@ -2937,6 +3662,7 @@ export class ROIService {
       status: data.status ?? RUN_QUEUED,
       summary: data.summary ?? "",
       plan_ids: asArray(data.plan_ids),
+      plan_refs: asArray(data.plan_refs),
       capabilities_used: asArray(data.capabilities_used),
       context_pack_refs: asArray(data.context_pack_refs),
       deliverable_refs: asArray(data.deliverable_refs),
@@ -3451,11 +4177,77 @@ export class ROIService {
   }
 
   _partialVerificationEligible(missionId) {
+    const progress = this._missionGoProgress(missionId);
+    const candidates = this._partialVerificationCandidates(missionId);
+    return {
+      eligible: !progress.complete && candidates.length > 0,
+      candidate_plan_ids: candidates,
+      substantive_count: progress.substantive,
+      open_count: progress.open.length,
+      total: progress.total,
+      mission_complete: progress.complete
+    };
+  }
+
+  _partialVerificationCandidates(missionId) {
+    const run = this.runList({ mission_id: missionId }).runs.find((candidate) =>
+      ![RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED].includes(candidate.status)
+    );
+    if (!run) {
+      return [];
+    }
     const plans = this._listLatestPlans(missionId);
     const evidence = this.evidenceList({ mission_id: missionId }).evidence;
-    return partialVerificationEligible(plans, evidence, {
-      skipPlanIds: this._convergenceSkipPlanIds(missionId)
-    });
+    const candidates = [];
+    for (const planId of run.plan_ids) {
+      const plan = plans.find((candidate) => candidate.id === planId);
+      const goEvidence = latestRoiGoVerificationByPlan(evidence).get(planId);
+      if (
+        !plan ||
+        goEvidence?.run_id !== run.id ||
+        !substantiveRoiGoForPlan(evidence, planId, plans)
+      ) {
+        continue;
+      }
+      const verifyTask = this._listRunTasks(run.id).find((task) =>
+        task.plan_id === planId && task.payload?.stage_kind === StageKind.VERIFY_GATE
+      );
+      if (!verifyTask) {
+        continue;
+      }
+      try {
+        const checkpoint = this._assertVerificationOrientationCoverage({
+          plan,
+          run,
+          task: verifyTask
+        });
+        this._assertVerifierCheckpointAfterLatestGo({ checkpoint, plan, run });
+        candidates.push(planId);
+      } catch {
+        // Projection only: the admission path reports the exact failure.
+      }
+    }
+    return candidates;
+  }
+
+  _orientationSummary(missionId) {
+    const latestByBinding = new Map();
+    for (const checkpoint of this.orientationList({ mission_id: missionId }).checkpoints) {
+      const key = `${checkpoint.plan_id}\u0000${checkpoint.run_id}\u0000${checkpoint.task_id}`;
+      if (!latestByBinding.has(key)) {
+        latestByBinding.set(key, checkpoint);
+      }
+    }
+    return [...latestByBinding.values()];
+  }
+
+  _runHasFullVerificationPass(run) {
+    return this.evidenceList({ mission_id: run.mission_id, run_id: run.id }).evidence.some((evidence) =>
+      evidence.source === "verify.evaluate" &&
+      String(evidence.result).toLowerCase() === VerifyVerdict.PASS &&
+      evidence.content?.verify_gate?.partial_mission !== true &&
+      sameStringSet(evidence.content?.plan_ids, run.plan_ids)
+    );
   }
 
   _missionImplementationProofTrust(missionId) {
@@ -3503,8 +4295,19 @@ export class ROIService {
     if (!this._getLatestBrief(missionId)) {
       return ["roi:brief"];
     }
-    if (!this._listLatestPlans(missionId).length) {
+    const latestPlans = this._listLatestPlans(missionId);
+    if (!latestPlans.length) {
       return ["roi:source", "roi:outline"];
+    }
+    if (latestPlans.some((plan) => {
+      try {
+        this._assertExecutablePlanningOrientation(plan);
+        return false;
+      } catch {
+        return true;
+      }
+    })) {
+      return ["roi:outline", "roi:inspect"];
     }
     const latestRun = this.runList({ mission_id: missionId }).runs[0];
     if (!latestRun) {
@@ -3601,6 +4404,7 @@ function parseMissionRow(row) {
 function parsePlan(plan) {
   return {
     ...plan,
+    planning_orientation: plan.planning_orientation ?? null,
     source_contract_refs: asArray(plan.source_contract_refs),
     requires_source_contract_check: Boolean(plan.requires_source_contract_check),
     convergence_seam_id: plan.convergence_seam_id || ""
@@ -3718,6 +4522,12 @@ function parseOptionalRowJson(value, context, fallback) {
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function sameStringSet(left, right) {
+  const a = unique(asArray(left).map((value) => String(value)));
+  const b = unique(asArray(right).map((value) => String(value)));
+  return a.length === b.length && a.every((value) => b.includes(value));
 }
 
 function newId(prefix) {

@@ -84,6 +84,11 @@ covers outcome strength, binding altitude, and property-style verification.
      so the trail is durable.
    - Brief contains no quantitative claims → skip this step.
 
+   Counts in this inventory are scope telemetry only. They can expose stale or
+   incomplete discovery, but no count, percentage, score, or ContextPack TTL
+   proves that planning orientation is sufficient. Sufficiency requires
+   owner-seam coverage and disposition of every material uncertainty.
+
 3. **Resolve scope-affecting open_questions in the brief, not the plan.**
    Read every entry in the brief's `open_questions`. For each entry, ask:
    *would its answer change which files the plans touch, which subsystems
@@ -244,6 +249,19 @@ covers outcome strength, binding altitude, and property-style verification.
    call `plan_revise` after the fact to wire dependencies once all UUIDs
    exist.
 
+   Before persistence, include `planning_orientation` on every plan with the
+   workspace and instruction sources, source artifacts, live-state identity,
+   semantic-owner and first-proof seams, material uncertainties, proof
+   obligations, and execution preconditions:
+
+   ```bash
+   node roi/scripts/lifecycle.mjs plan_generate '{"mission_id":"<id>","plans":[{"name":"<plan>","actions":["<action>"],"verification_targets":["<target>"],"planning_orientation":{"status":"current","workspace_root":"<root>","instruction_sources":["AGENTS.md"],"source_artifacts":["<source>"],"live_state_identity":"git:<sha-or-tree-id>","authority_constraints":["<constraint>"],"owner_seams":[{"id":"OS1","owner":"<owner>","seam":"<concrete seam>","evidence_sources":["<source>"]}],"material_uncertainties":[],"proof_obligations":[{"id":"PO1","obligation":"<property>","owner_seam_ids":["OS1"],"verification_targets":["<target>"]}],"execution_preconditions":["<precondition>"],"completion_basis":"owner_seam_coverage_and_material_uncertainty"}}]}'
+   ```
+
+   Do not proceed to execution while planning orientation is missing, stale,
+   blocked, or retains an `open` material uncertainty. The generated plan must
+   preserve stable owner-seam and uncertainty ids for downstream checkpoints.
+
 8. Persist:
 
    ```bash
@@ -265,7 +283,11 @@ covers outcome strength, binding altitude, and property-style verification.
    node roi/scripts/lifecycle.mjs plan_revise '<json>'
    ```
 
-   to create a new revision (does not overwrite the prior one).
+   to create a new revision (does not overwrite the prior one). The new revision
+   invalidates checkpoints bound to the old revision under
+   `plan_identity_change`. Include fresh `planning_orientation` in the same
+   `plan_revise` call for every material change; only status/wave-only revisions
+   may retain the current planning orientation.
 
 ## plan_generate quality bar
 

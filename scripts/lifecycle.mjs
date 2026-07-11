@@ -58,6 +58,11 @@ export const VERBS = [
   ["plan_revise", "planRevise"],
   ["plan_assign_waves", "planAssignWaves"],
   ["plan_normalize", "planNormalize"],
+  // execution orientation
+  ["orientation_refresh", "orientationRefresh"],
+  ["orientation_invalidate", "orientationInvalidate"],
+  ["orientation_get", "orientationGet"],
+  ["orientation_list", "orientationList"],
   // task
   ["task_create", "taskCreate"],
   ["task_transition", "taskTransition"],

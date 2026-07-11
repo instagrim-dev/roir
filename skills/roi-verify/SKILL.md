@@ -29,8 +29,12 @@ the plan." Read
 ## Inputs
 
 1. **Mission ID** required.
-2. **Run ID** required — the run currently paused at `verify_gate`.
+2. **Run ID** required — the run may be paused at `verify_gate` or at an
+   orientation-gated spec/quality review task.
 3. **Optional flags** — see Flags table below.
+4. **Current verification orientation checkpoint** — required for the exact
+   semantic scope being judged, bound to current plan revisions, owner seams,
+   proof obligations, source-contract requirements, and live-state identity.
 
 ## Procedure
 
@@ -39,7 +43,13 @@ the plan." Read
    ```bash
    node roi/scripts/lifecycle.mjs status_get '{"mission_id":"<id>"}'
    node roi/scripts/lifecycle.mjs evidence_list '{"mission_id":"<id>","run_id":"<run_id>"}'
+   node roi/scripts/lifecycle.mjs task_list '{"run_id":"<run_id>"}'
+   node roi/scripts/lifecycle.mjs orientation_list '{"mission_id":"<id>"}'
    ```
+
+   Treat `partial_verification_eligible`, substantive/open counts, percentages,
+   scores, and ContextPack TTL as telemetry only. None selects the verification
+   scope or proves that it is sufficient.
 
 2. For each plan in scope, judge the **latest** `source: roi:go`
    verification row (newest `captured_at`; `created_at` only on legacy rows);
@@ -69,10 +79,20 @@ the plan." Read
    unless source-contract proof confidence is `independent_reviewed`, which
    requires explicit independent-review metadata in the `roi:go` proof bundle.
 
-6. Form an explicit verdict and write reasoning into `notes`. The notes
+6. Before each verifier, including every target run through `run_oracles` and
+   each manual review obligation, call `orientation_refresh` with
+   `action_class: verifier_execution`. Bind the exact verifier, proof
+   obligation/targets, current plan revision and identity, run, and the
+   matching spec-review, quality-review, or verify-gate `task_id`. Refresh each
+   open verifier task separately. Include live-state identity, observed owner-seam ids, and
+   checked preconditions. Re-read with `orientation_get`; do not issue any
+   verdict from a
+   stale, blocked, missing, differently scoped, or pre-`roi:go` checkpoint.
+
+7. Form an explicit verdict and write reasoning into `notes`. The notes
    field is the durable record of why this verdict was recorded.
 
-7. Persist:
+8. Persist:
 
    ```bash
    node roi/scripts/lifecycle.mjs verify_evaluate '<json>'
@@ -88,7 +108,8 @@ the plan." Read
      "require_verified_proof": false,
      "require_independent_source_contract_review": false,
      "run_oracles": false,
-     "allow_partial_verification": false
+     "allow_partial_verification": false,
+     "scope_plan_ids": []
    }
    ```
 
@@ -99,10 +120,12 @@ the plan." Read
 | `require_verified_proof: true` | Verdict `pass` is rejected unless every run plan has substantive `roi:go` with `verified_by: mcp` (set by recording evidence with `run_oracles: true`). Use when the gate must accept only helper-verified proof. |
 | `require_independent_source_contract_review: true` | Verdict `pass` is rejected unless source-contract run plans have `source_contract_proof_confidence: independent_reviewed`. Use for doctrine, roadmap, or other source-derived missions where same-session structural checks are not enough. |
 | `run_oracles: true` | Helper runs each run plan's `verification_targets` at the gate and stamps `content.verify_gate.verified_by: mcp`; pass is rejected if any target fails. Independent of `roi:go`'s own oracle runs. |
-| `allow_partial_verification: true` | **`verdict: pass` only.** Checkpoint pass when ≥1 run plan has substantive `roi:go` but the mission is incomplete. Stamps `verify_gate.partial_mission`; `next_actions` stay `roi:go`/`roi:inspect` (no `roi:publish`). With `run_oracles`, only **substantive** plans' targets run. |
+| `allow_partial_verification: true` | **`verdict: pass` only.** Requires non-empty `scope_plan_ids` naming the non-publishing semantic scope. Every included plan must have current-revision substantive proof, required source-contract coverage, and a current verification checkpoint binding the scope's owner seams and proof obligations. Stamps `verify_gate.partial_mission`; `next_actions` stay `roi:go`/`roi:inspect`. A nonzero plan count or ratio is not eligibility. With `run_oracles`, only plans in the bound semantic scope run. |
 
 Read `status_get.summary.partial_verification_eligible` before choosing
-checkpoint pass vs full pass.
+checkpoint pass vs full pass, but treat it only as a discovery hint. Confirm the
+semantic scope and current checkpoint independently; the hint cannot authorize
+a checkpoint pass.
 
 ## Trust model
 
@@ -129,6 +152,10 @@ Cite `verification_policy` and `implementation_proof_trust` in `notes`.
 and is the **last** reopen-or-go event for that plan (chronological order by
 `captured_at`, then evidence `id`), treat the mission as **not verify-ready**
 until remediation is re-go'd (`partial` or `fail` with explicit plan ids).
+Invalidate the affected checkpoint with `verifier_command_invalidation` before
+remediation. If the review also proves live-tree drift, owner disappearance, or
+unavailable execution capability, record that canonical trigger too. A revised
+plan similarly invalidates prior checkpoints under `plan_identity_change`.
 
 `status_get.summary.implementation_proof_trust` reflects which level applies
 to in-scope plans. `status_get.summary.source_contract_proof_confidence` is

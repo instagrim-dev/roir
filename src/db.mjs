@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const defaultSchemaVersion = 2;
+const defaultSchemaVersion = 3;
 
 export function openDatabase(dbPath) {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -16,7 +16,12 @@ export function openDatabase(dbPath) {
   // is kept only so any future normalized column with a real FK is enforced.
   db.exec("PRAGMA foreign_keys = ON;");
   db.exec("PRAGMA busy_timeout = 30000;");
-  withTransaction(db, () => migrate(db));
+  try {
+    withTransaction(db, () => migrate(db));
+  } catch (error) {
+    db.close();
+    throw error;
+  }
   return db;
 }
 
@@ -57,6 +62,11 @@ function migrate(db) {
 
   const currentVersion =
     Number(db.prepare("SELECT value FROM roi_meta WHERE key = ?").get("schema_version")?.value ?? 0);
+  if (currentVersion > defaultSchemaVersion) {
+    throw new Error(
+      `unsupported newer ROI schema version ${currentVersion}; this runtime supports ${defaultSchemaVersion}`
+    );
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS missions (
@@ -94,6 +104,18 @@ function migrate(db) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (id, revision)
+    );
+
+    CREATE TABLE IF NOT EXISTS orientation_checkpoints (
+      id TEXT PRIMARY KEY,
+      mission_id TEXT NOT NULL,
+      plan_id TEXT NOT NULL,
+      plan_revision INTEGER NOT NULL,
+      run_id TEXT NOT NULL,
+      task_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS context_packs (
@@ -223,6 +245,10 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_tasks_mission_id ON tasks (mission_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_run_id ON tasks (run_id);
     CREATE INDEX IF NOT EXISTS idx_runs_mission_id ON runs (mission_id);
+    CREATE INDEX IF NOT EXISTS idx_orientation_checkpoints_mission_id ON orientation_checkpoints (mission_id);
+    CREATE INDEX IF NOT EXISTS idx_orientation_checkpoints_plan_revision ON orientation_checkpoints (plan_id, plan_revision);
+    CREATE INDEX IF NOT EXISTS idx_orientation_checkpoints_run_id ON orientation_checkpoints (run_id);
+    CREATE INDEX IF NOT EXISTS idx_orientation_checkpoints_task_id ON orientation_checkpoints (task_id);
     CREATE INDEX IF NOT EXISTS idx_evidence_mission_id ON evidence (mission_id);
     CREATE INDEX IF NOT EXISTS idx_evidence_run_id ON evidence (run_id);
     CREATE INDEX IF NOT EXISTS idx_traces_mission_id ON traces (mission_id);

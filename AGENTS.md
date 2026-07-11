@@ -59,8 +59,9 @@ mission created
   → brief revised        (roi:clarify)
   → research recorded    (roi:source — optional)
   → plans generated      (roi:outline)
-  → implementation done  (roi:go)
   → run created          (roi:draft / roi:run)
+  → orientation admitted (roi:go / roi:verify as task stage requires)
+  → implementation done  (roi:go)
   → paused at verify_gate (roi:verify — operator-owned)
   → paused at publish_gate (roi:publish — operator-owned)
   → terminal             (optional roi:learn)
@@ -74,7 +75,69 @@ A full `roi:verify` pass reconciles the run ledger after `roi:go` evidence is
 substantive for every run plan: queued run-scope workflow tasks are completed,
 the run becomes `completed`, superseded stale blockers are hidden from
 `status_get.blocking_issues`, and `next_actions` moves to `roi:publish` plus
-`roi:learn`. Partial checkpoint passes deliberately do not publish.
+`roi:learn`. Partial checkpoint passes deliberately do not publish and are valid
+only for the semantic scope bound to a current orientation checkpoint.
+
+## Orientation And Checkpoints
+
+Planning orientation is required before execution. It is complete only when the
+current workspace/instructions, durable source artifacts, live-state identity,
+semantic-owner and first-proof seams, material uncertainties, and execution
+preconditions are recorded. Its completion basis is
+`owner_seam_coverage_and_material_uncertainty`, never a read count, plan count,
+percentage, score, or other numeric sufficiency proxy.
+
+Execution and verification consume a durable orientation checkpoint. Refresh it
+immediately before every host mutation and immediately before each verifier,
+including helper-run oracles and manual review. A current checkpoint binds the
+plan id and revision, live-state identity, current unit, exact next action, proof
+obligation, observed owner-seam ids, checked preconditions, and persisted refresh
+event. Approval or prior evidence does not make a stale checkpoint current.
+
+Canonical invalidators are exactly:
+
+- `plan_identity_change`
+- `compaction`
+- `handoff`
+- `material_live_tree_change`
+- `failed_mutation`
+- `verifier_command_invalidation`
+- `owner_seam_disappearance`
+- `execution_capability_unavailable`
+
+Use the lifecycle helper to persist and inspect orientation:
+
+```bash
+node scripts/lifecycle.mjs orientation_refresh '{"mission_id":"<id>","plan_id":"<plan-id>","plan_revision":3,"run_id":"<run-id>","plan_identity":"<plan-id>@3","live_state_identity":"git:<sha-or-tree-id>","current_unit":"<declared action>","next_action":"<declared action>","action_class":"implementation","proof_obligation_ids":["PO1"],"proof_targets":["<persisted verification target>"],"checked_preconditions":["<precondition>"],"observed_owner_seam_ids":["OS1"],"reason":"pre_mutation"}'
+node scripts/lifecycle.mjs orientation_invalidate '{"checkpoint_id":"<checkpoint-id>","trigger":"plan_identity_change","reason":"plan revised from 2 to 3"}'
+node scripts/lifecycle.mjs orientation_get '{"checkpoint_id":"<checkpoint-id>"}'
+node scripts/lifecycle.mjs orientation_list '{"mission_id":"<id>"}'
+```
+
+`plan_revise` invalidates checkpoints bound to the prior revision. Material
+revisions require fresh `planning_orientation`; status/wave-only revisions may
+retain the current planning orientation. A
+`quality_review` reopen invalidates every current checkpoint binding for the
+affected plan using `verifier_command_invalidation`; also record `material_live_tree_change` or
+`owner_seam_disappearance` when that is the observed cause. Reorientation must
+finish before remediation mutation or another verifier runs.
+
+Progress counts and `ContextPack.freshness_ttl` are telemetry only. They may
+prompt an operator to inspect or refresh state, but they cannot establish
+orientation sufficiency, authorize mutation, select checkpoint scope, or prove
+verification completeness.
+
+Passing `roi:go` evidence for a plan with actions requires admitted
+mutation-class history plus verifier coverage since the latest invalidation.
+Every `verify_evaluate` verdict requires a current checkpoint bound to the
+matching verify-gate task. Public `task_transition` may manage nonterminal
+state but cannot complete service-owned workflow stages.
+
+All executor modes (`local`, `agent`, and `a2a`) require a current task-bound
+implementation checkpoint before dispatch. Automatic spec and quality review
+stages require their own task-bound verifier checkpoints. When `roi:go`
+evidence names a run, its implementation and verifier checkpoints must bind
+that run's concrete implement task; run-level checkpoints cannot substitute.
 
 ## Two loops
 

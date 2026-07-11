@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { createTestService } from "./_helper-test-driver.mjs";
+import {
+  createPlanningOrientation,
+  createTestService,
+  refreshImplementationOrientation,
+  refreshVerificationOrientation
+} from "./_helper-test-driver.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -76,7 +81,7 @@ test("ROI editorial loop dogfoods review edit publish learn inspect via lifecycl
 
   const outlined = await roi.outline(missionId, {
     plans: [
-      {
+      withPlanningOrientation({
         name: "Exercise editorial lifecycle",
         scope: "Walk one mission through review, edit, publish, learn, and inspect",
         actions: [
@@ -92,7 +97,7 @@ test("ROI editorial loop dogfoods review edit publish learn inspect via lifecycl
           "After learning inspect suggests capability.promote"
         ],
         wave: 1
-      }
+      })
     ]
   });
   assert.deepEqual(outlined.next_actions, ["roi:draft"]);
@@ -112,7 +117,8 @@ test("ROI editorial loop dogfoods review edit publish learn inspect via lifecycl
     blockedState.summary.blocking_issues.some((issue) =>
       issue.blocking_issues.includes("unverified_completion_claim") ||
       issue.blocking_issues.includes("verification_evidence_missing_before_completion_claim")
-    )
+    ),
+    JSON.stringify(blockedState.summary.blocking_issues)
   );
 
   const edited = await roi.edit(missionId, planId, {
@@ -210,6 +216,14 @@ function createEditorialClient(harness) {
     async review(missionId, runId, args) {
       const run = (await harness.call("run_get", { run_id: runId })).run;
       await recordSubstantiveRoiGoForRun(harness, missionId, run);
+      const plans = (await harness.call("plan_list", { mission_id: missionId })).plans;
+      const tasks = (await harness.call("task_list", { run_id: runId })).tasks;
+      for (const plan of plans.filter((candidate) => run.plan_ids.includes(candidate.id))) {
+        const verifyTask = tasks.find(
+          (task) => task.plan_id === plan.id && task.payload?.stage_kind === "verify_gate"
+        );
+        await refreshVerificationOrientation(harness, missionId, plan, runId, verifyTask.id);
+      }
       return {
         before: await harness.call("status_get", { mission_id: missionId }),
         history: await harness.call("review_list", { run_id: runId }),
@@ -217,12 +231,19 @@ function createEditorialClient(harness) {
       };
     },
     async edit(missionId, planId, args) {
+      const revisedDraft = {
+        name: "Exercise editorial lifecycle",
+        scope: "Walk one mission through review, edit, publish, learn, and inspect",
+        actions: args.actions,
+        verification_targets: args.verification_targets
+      };
       return {
         before: await harness.call("status_get", { mission_id: missionId }),
         revised_plan: await harness.call("plan_revise", {
           plan_id: planId,
           actions: args.actions,
-          verification_targets: args.verification_targets
+          verification_targets: args.verification_targets,
+          planning_orientation: createPlanningOrientation(revisedDraft)
         }),
         redraft: await harness.call("run_create", {
           mission_id: missionId,
@@ -268,8 +289,14 @@ async function recordSubstantiveRoiGoForRun(harness, missionId, run) {
     if (!hasWork) {
       continue;
     }
+    const implementTask = (await harness.call("task_list", { run_id: run.id })).tasks.find(
+      (task) => task.plan_id === plan.id && task.payload?.stage_kind === "implement"
+    );
+    await refreshImplementationOrientation(harness, missionId, plan, run.id, implementTask.id);
+    await refreshVerificationOrientation(harness, missionId, plan, run.id, implementTask.id);
     await harness.call("evidence_record", {
       mission_id: missionId,
+      run_id: run.id,
       type: "verification",
       source: "roi:go",
       result: "pass",
@@ -284,4 +311,8 @@ async function recordSubstantiveRoiGoForRun(harness, missionId, run) {
       }
     });
   }
+}
+
+function withPlanningOrientation(plan) {
+  return { ...plan, planning_orientation: createPlanningOrientation(plan) };
 }

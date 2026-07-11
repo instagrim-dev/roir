@@ -19,6 +19,8 @@ ROI persists these categories of information:
 - missions and mission status
 - brief revisions
 - plan revisions
+- planning, execution, and verification orientation checkpoints
+- orientation refresh and invalidation events
 - convergence controllers and seam manifests
 - runs and staged tasks
 - routing decisions
@@ -35,11 +37,77 @@ ROI does not treat changing state as destructive overwrite where avoidable.
 
 - briefs are revisioned
 - plans are revisioned
+- orientation checkpoints bind an exact plan revision and live-state identity
 - capabilities are revisioned
 - review outcomes are stored as records
 
 That means ROI can preserve how a mission changed over time instead of only
 showing the latest prompt or summary.
+
+## Orientation Checkpoint Semantics
+
+Planning orientation is required before execution. Its authority comes from
+owner-seam coverage, material-uncertainty disposition, live-state identity, and
+checked execution preconditions. It never comes from a fixed number of reads,
+plans, files, evidence rows, completed tasks, or elapsed time.
+
+Planning orientation is persisted on the plan through `plan_generate` or
+`plan_revise`. `orientation_refresh` appends a refresh event and persists a
+current execution checkpoint; `action_class` distinguishes implementation,
+review autofix, remediation, generated-artifact update, commit preparation,
+verifier execution, and verifier recovery. `orientation_get` reads a checkpoint
+by id; `orientation_list` exposes filtered checkpoint history.
+`orientation_invalidate` marks a checkpoint stale or blocked without deleting
+its history.
+
+Execution checkpoints are refreshed immediately before every host mutation.
+Verification checkpoints are refreshed immediately before each verifier or
+oracle, including repeated verifiers in the same run. A `verify_evaluate`
+checkpoint also binds the matching verify-gate task, and every verdict requires
+that task-bound authority. Each checkpoint records the latest observed evidence
+sequence; a review/verifier checkpoint older than the run's latest passing
+`roi:go` evidence is stale for admission even if no explicit invalidation row
+has yet been appended. Each current checkpoint
+binds plan id/revision, live-state identity, current unit, exact next action,
+proof obligation, owner-seam ids, checked preconditions, and its refresh event.
+
+The canonical invalidators are:
+
+- `plan_identity_change`
+- `compaction`
+- `handoff`
+- `material_live_tree_change`
+- `failed_mutation`
+- `verifier_command_invalidation`
+- `owner_seam_disappearance`
+- `execution_capability_unavailable`
+
+`plan_revise` makes checkpoints for the prior revision stale under
+`plan_identity_change`. A `quality_review` reopen invalidates every current
+checkpoint binding for the affected plan under `verifier_command_invalidation`; record an
+additional applicable canonical trigger when the review also proves tree drift,
+owner disappearance, or unavailable execution capability. Remediation requires
+a refreshed execution checkpoint, and the next review requires a separately
+refreshed verification checkpoint.
+
+A passing `roi:go` evidence row for a plan with actions requires both admitted
+mutation-class history and verifier coverage after the latest invalidation.
+When the row names a run, both histories bind that run's concrete implement
+task; a run-level checkpoint with an empty task id cannot complete the task.
+`task_transition` cannot complete service-owned workflow stages; completion is
+owned by execution/review reconciliation and a full `verify.evaluate` pass.
+
+Every executor mode is admitted through a task-bound implementation
+checkpoint. Automatic spec and quality review stages are verifier actions and
+require separate task-bound verifier checkpoints before they can record review
+state.
+
+Context packs retain `generated_at` and `freshness_ttl` as retrieval telemetry.
+TTL expiry may prompt a fresh read, but it neither invalidates nor refreshes an
+orientation checkpoint and cannot authorize or block mutation. Likewise,
+`mission_go_progress` totals and open/substantive counts are telemetry-only;
+semantic scope and current checkpoint bindings govern execution and partial
+verification.
 
 ## Task And Run Semantics
 
@@ -110,6 +178,7 @@ repo-relative evidence paths must exist when the helper can resolve them.
   [`mission-verification-policy.md`](./mission-verification-policy.md))
 - `requires_helper_verified_proof` — true when policy is strict
 - `mission_go_progress` — per-plan open/substantive counts for completion mode
+  (telemetry only; not an orientation or verification sufficiency gate)
 - `implementation_proof_trust` — `agent_claimed` (default) or `mcp_verified`
   when `implementation_proof.verified_by` is `mcp` (legacy stamp name; means
   helper-verified)
@@ -129,7 +198,9 @@ repo-relative evidence paths must exist when the helper can resolve them.
 
 - `type: quality_review`, `result: reopen`, `content.plan_ids` — invalidates
   substantive `roi:go` for listed plans when reopen is the last go/reopen
-  event (see [`mission-verification-policy.md`](./mission-verification-policy.md))
+  event and invalidates their verification checkpoints under
+  `verifier_command_invalidation` (see
+  [`mission-verification-policy.md`](./mission-verification-policy.md))
 
 `verify_evaluate` optional fields:
 
@@ -139,6 +210,11 @@ repo-relative evidence paths must exist when the helper can resolve them.
 - **`run_oracles: true`** (D2-D) — helper runs `verification_targets`
   for run plans; stamps `content.verify_gate`; blocks `pass` on target
   failure
+- **`allow_partial_verification: true`** — a non-publishing checkpoint pass is
+  allowed only with non-empty `scope_plan_ids` naming a semantic scope whose plans, proof
+  obligations, plan revisions, source-contract requirements, and verification
+  checkpoint are current. A nonzero substantive count is telemetry, not
+  eligibility.
 
 Trust semantics and v0.2 oracle execution are documented in
 [`docs/meta-design/2026-05-27-roi-implementation-proof-and-executors.md`](../../docs/meta-design/2026-05-27-roi-implementation-proof-and-executors.md).
@@ -162,23 +238,23 @@ manifest membership, or blocked-versus-judgment classification.
 
 ## Schema And Migrations
 
-ROI ships with a **single current schema**, not a versioned migration ladder.
-The policy is deliberately simple for v0.1:
+ROI ships one current schema plus an append-only migration-step framework. The
+policy remains deliberately small for v0.1:
 
 - **Authoritative constants.** `defaultSchemaVersion` in
   [`src/db.mjs`](../src/db.mjs) and `ROI_SCHEMA_VERSION` in
   [`src/contracts.mjs`](../src/contracts.mjs) must move together. The
-  package `version` in [`package.json`](../package.json) should be
-  bumped in lockstep for any schema change (see the release checklist in
-  the contribution docs).
+  package release versions are managed separately by the release checklist.
 - **Idempotent create.** `openDatabase` runs `migrate()` on every start.
   `migrate()` uses `CREATE TABLE IF NOT EXISTS` for every table and then
-  stamps `roi_meta.schema_version` with the current value. Running it against
-  an unchanged schema is a no-op.
-- **No up/down migrations today.** `migrate()` reads the stored
-  `schema_version` but does not branch on it to apply per-version SQL. Adding
-  or removing columns, renaming tables, or changing primary keys is therefore
-  **not** migration-safe against existing databases.
+  runs the ordered migration-step map, and stamps `roi_meta.schema_version`
+  only after those steps succeed. Running it against an unchanged schema is a
+  no-op.
+- **Forward steps only.** `migrationSteps` is keyed by target schema version.
+  Shipped steps are append-only; ROI does not provide down migrations. Schema
+  v3 adds `orientation_checkpoints` through the idempotent baseline, so an
+  existing database acquires the table on its next open without rewriting
+  historical blobs.
 - **JSON blob shielding.** Most row-shape evolution happens inside the
   `data_json` columns, which means many product-level changes do not require
   any SQL change. The `schema_version` field stamped on each record
@@ -191,25 +267,25 @@ The policy is deliberately simple for v0.1:
 |---|---|---|
 | **Additive table** | New `capability_proposals` table. | None for existing DBs. `CREATE TABLE IF NOT EXISTS` picks up the new shape on next start. |
 | **Additive JSON field** | New field inside `briefs.data_json`. | None. Readers default missing fields; `schema_version` inside the blob identifies legacy rows. |
-| **Additive SQL column with safe default** | New non-null column on `missions`. | Not supported without code support. Prefer JSON blob; if unavoidable, bump both schema-version constants and reset. |
-| **Breaking SQL change** | Column removed, primary key changed, table renamed. | **Reset required.** Bump `defaultSchemaVersion` and `ROI_SCHEMA_VERSION` in lockstep, then delete the SQLite files (recipe below). |
+| **Additive SQL column with safe default** | New non-null column on `missions`. | Add an ordered migration step and a from-prior-version test, or prefer a JSON field. |
+| **Breaking SQL change** | Column removed, primary key changed, table renamed. | Add an explicit forward migration with preservation tests. If preservation is not supported for this local release, declare the break and use the reset recipe below. |
 | **Contract-only change** | Zod schema in `contracts.mjs` tightens a field. | Bump `ROI_SCHEMA_VERSION`; existing rows still load if the tightened field is permissive on read. Add a contract test. |
 
-v0.1 ROI is **local-first**: mission data is reproducible by re-running
-missions, so reset is the supported migration path for breaking changes. See
-[`limitations.md`](./limitations.md#current-constraints) for the product-level
-statement of this constraint.
+Historical v2 plans do not contain `planning_orientation`, and historical runs
+do not contain immutable `plan_refs`. ROI reads and reports those records, but
+execution and successful verification fail closed: revise the plan with a
+current planning orientation and create a new run. ROI does not infer a plan
+revision for an old run because that would erase the authority boundary the v3
+contract introduces.
 
-### Future Path
+### Migration Discipline
 
-If preserved history ever becomes a requirement, the intended evolution is:
-
-1. Introduce a `MIGRATIONS` map in `db.mjs` keyed on target version.
-2. Read `currentVersion` (already available in `migrate()` but unused today)
-   and iterate each `(current, current+1)` step inside a transaction.
-3. Only then treat `schema_version` bumps as contractually migration-safe.
-
-Until that lands, the **reset** policy above is the honest answer.
+Every non-idempotent schema change must add the next target-version step in
+`migrationSteps`, preserve the shipped steps unchanged, and prove opening a
+fixture stamped at the prior version. A schema-version bump without either an
+idempotent additive baseline change or an ordered step is not migration-safe.
+Reset remains an explicit local recovery option, not the default migration
+mechanism.
 
 ## Resetting Local State
 

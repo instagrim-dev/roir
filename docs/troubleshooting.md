@@ -117,12 +117,20 @@ include the underlying parse or source-format error.
 That is expected in the current release. ROI uses Node's experimental
 `node:sqlite` API. This warning does not by itself indicate failure.
 
-## A Run Stops At Review
+## A Run Pauses For Orientation Or Review
 
-This is normal. `roi:draft` typically pauses at `verify_gate`. Use:
+This is normal. Start with `roi:inspect` and use the latest task and
+`next_actions` to distinguish the pause:
 
-- `roi:inspect` to inspect the paused state
-- `roi:review` to record the verdict and decide whether to edit or publish
+- An `orientation_refresh_required` pause on an implementation task requires
+  `roi:go` to refresh that task's execution orientation.
+- An orientation pause on a spec, quality, or verification task requires
+  `roi:review` to refresh the corresponding verification orientation.
+- A `verify_gate` pause requires `roi:review` to record the verdict and decide
+  whether to edit or publish.
+
+Re-read `roi:inspect` after the stage skill completes; resume only when the
+current lifecycle state requests it.
 
 ## A Run Is Blocked By Policy
 

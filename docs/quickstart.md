@@ -118,7 +118,9 @@ Use the top-level ROI command surface in this order:
     Generates or stores plans, assigns routing, and stamps workflow metadata.
 5. `roi:draft`
     Expands the selected plan into staged tasks and advances execution.
-    Typically pauses at `verify_gate`; use `roi:review` to advance.
+    It can first pause for task-bound orientation admission. Follow its
+    `next_actions`: use `roi:go` for an implementation admission pause and
+    `roi:review` for spec, quality, or verification admission and review work.
 6. `roi:review`
    Closes the review gate with explicit evidence and a verdict.
 7. `roi:edit`
@@ -136,7 +138,8 @@ Use the top-level ROI command surface in this order:
 
 On the first green-path run:
 
-- `roi:draft` usually pauses at `verify_gate`
+- `roi:draft` may first pause for task-bound orientation admission; after
+  task evidence is current, it pauses at `verify_gate` for the verdict
 - `roi:inspect` should show:
   - one or more plans
   - staged tasks

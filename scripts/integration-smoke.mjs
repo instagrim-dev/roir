@@ -201,18 +201,39 @@ try {
   // ── Phase 4: helper-verified package proof ────────────────────────────────
   step("Phase 4: helper-verified package proof");
   if (createdMissionId) {
+    const verificationTarget = 'node -e "process.exit(require(\'fs\').existsSync(\'package.json\') ? 0 : 1)"';
+    const planningOrientation = {
+      status: "current",
+      workspace_root: "roi-package-root",
+      instruction_sources: ["roi/AGENTS.md"],
+      source_artifacts: ["scripts/integration-smoke.mjs"],
+      live_state_identity: "integration-smoke:planning-current",
+      authority_constraints: ["active package root only"],
+      owner_seams: [{
+        id: "OS1",
+        owner: "ROI lifecycle smoke",
+        seam: "helper-verified package proof",
+        evidence_sources: ["scripts/integration-smoke.mjs"]
+      }],
+      material_uncertainties: [],
+      proof_obligations: [{
+        id: "PO1",
+        obligation: "prove the active ROI package root is executable",
+        owner_seam_ids: ["OS1"],
+        verification_targets: [verificationTarget]
+      }],
+      execution_preconditions: ["plan revision and package root are current"],
+      completion_basis: "owner_seam_coverage_and_material_uncertainty"
+    };
     const planArgs = JSON.stringify({
       mission_id: createdMissionId,
       plans: [
         {
-          title: "packaged-proof",
-          summary: "Exercise run_oracles against the active ROI package root",
-          plan: {
-            actions: ["Record helper-verified proof"],
-            verification_targets: [
-              'node -e "process.exit(require(\'fs\').existsSync(\'package.json\') ? 0 : 1)"'
-            ]
-          }
+          name: "packaged-proof",
+          scope: "Exercise run_oracles against the active ROI package root",
+          actions: ["Record helper-verified proof"],
+          verification_targets: [verificationTarget],
+          planning_orientation: planningOrientation
         }
       ]
     });
@@ -221,34 +242,74 @@ try {
       fail(`plan_generate exited ${planResp.code}; stderr: ${planResp.stderr}`);
     } else {
       const planData = parseJson(planResp.stdout, "plan_generate");
-      const planId = planData?.plans?.[0]?.id;
+      const plan = planData?.plans?.[0];
+      const planId = plan?.id;
       if (!planId) {
         fail(`plan_generate response missing first plan id: ${planResp.stdout}`);
       } else {
-        const evidenceArgs = JSON.stringify({
+        const implementationArgs = JSON.stringify({
           mission_id: createdMissionId,
-          type: "verification",
-          source: "roi:go",
-          result: "pass",
-          run_oracles: true,
-          content: {
-            plan_id: planId,
-            implementation_proof: {
-              diff_stat: "roi/package.json | 0",
-              paths_touched: ["roi/package.json"]
-            }
-          }
+          plan_id: planId,
+          plan_revision: plan.revision,
+          plan_identity: `${planId}@${plan.revision}`,
+          live_state_identity: "integration-smoke:implementation-current",
+          current_unit: "Record helper-verified proof",
+          next_action: "Record helper-verified proof",
+          action_class: "implementation",
+          proof_obligation_ids: ["PO1"],
+          proof_targets: [verificationTarget],
+          checked_preconditions: ["plan revision and package root are current"],
+          observed_owner_seam_ids: ["OS1"],
+          reason: "pre_mutation"
         });
-        const evidenceResp = await runHelper(["evidence_record", evidenceArgs]);
-        if (evidenceResp.code !== 0) {
-          fail(`evidence_record(run_oracles) exited ${evidenceResp.code}; stderr: ${evidenceResp.stderr}`);
+        const implementationResp = await runHelper(["orientation_refresh", implementationArgs]);
+        if (implementationResp.code !== 0) {
+          fail(`implementation orientation_refresh exited ${implementationResp.code}; stderr: ${implementationResp.stderr}`);
+        }
+        const orientationArgs = JSON.stringify({
+          mission_id: createdMissionId,
+          plan_id: planId,
+          plan_revision: plan.revision,
+          plan_identity: `${planId}@${plan.revision}`,
+          live_state_identity: "integration-smoke:package-current",
+          current_unit: verificationTarget,
+          next_action: verificationTarget,
+          action_class: "verifier_execution",
+          proof_obligation_ids: ["PO1"],
+          proof_targets: [verificationTarget],
+          checked_preconditions: ["plan revision and package root are current"],
+          observed_owner_seam_ids: ["OS1"],
+          reason: "pre_mutation"
+        });
+        const orientationResp = await runHelper(["orientation_refresh", orientationArgs]);
+        if (orientationResp.code !== 0) {
+          fail(`orientation_refresh exited ${orientationResp.code}; stderr: ${orientationResp.stderr}`);
         } else {
-          const evidenceData = parseJson(evidenceResp.stdout, "evidence_record");
-          const proof = evidenceData?.evidence?.content?.implementation_proof;
-          if (proof?.oracles_ok !== true || proof?.verified_by !== "mcp_verified") {
-            fail(`evidence_record(run_oracles) missing helper-verified proof: ${evidenceResp.stdout}`);
+          const evidenceArgs = JSON.stringify({
+            mission_id: createdMissionId,
+            type: "verification",
+            source: "roi:go",
+            result: "pass",
+            run_oracles: true,
+            content: {
+              plan_id: planId,
+              implementation_proof: {
+                diff_stat: "roi/package.json | 0",
+                paths_touched: ["roi/package.json"]
+              }
+            }
+          });
+          const evidenceResp = await runHelper(["evidence_record", evidenceArgs]);
+          if (evidenceResp.code !== 0) {
+            fail(`evidence_record(run_oracles) exited ${evidenceResp.code}; stderr: ${evidenceResp.stderr}`);
           } else {
-            console.log("  ✓ helper-verified roi/package.json proof succeeded from package root");
+            const evidenceData = parseJson(evidenceResp.stdout, "evidence_record");
+            const proof = evidenceData?.evidence?.content?.implementation_proof;
+            if (proof?.oracles_ok !== true || proof?.verified_by !== "mcp_verified") {
+              fail(`evidence_record(run_oracles) missing helper-verified proof: ${evidenceResp.stdout}`);
+            } else {
+              console.log("  ✓ helper-verified roi/package.json proof succeeded from package root");
+            }
           }
         }
       }

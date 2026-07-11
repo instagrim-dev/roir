@@ -1,7 +1,39 @@
 import { z } from "zod";
 
-export const ROI_SCHEMA_VERSION = 2;
+export const ROI_SCHEMA_VERSION = 3;
 export const SYSTEM_SCOPE_ID = "__system__";
+
+export const ORIENTATION_COMPLETION_BASIS = "owner_seam_coverage_and_material_uncertainty";
+export const OrientationCompletionBasis = ORIENTATION_COMPLETION_BASIS;
+
+export const OrientationInvalidationTrigger = Object.freeze({
+  PLAN_IDENTITY_CHANGE: "plan_identity_change",
+  COMPACTION: "compaction",
+  HANDOFF: "handoff",
+  MATERIAL_LIVE_TREE_CHANGE: "material_live_tree_change",
+  FAILED_MUTATION: "failed_mutation",
+  VERIFIER_COMMAND_INVALIDATION: "verifier_command_invalidation",
+  OWNER_SEAM_DISAPPEARANCE: "owner_seam_disappearance",
+  EXECUTION_CAPABILITY_UNAVAILABLE: "execution_capability_unavailable"
+});
+
+export const ORIENTATION_INVALIDATION_TRIGGERS = Object.freeze(
+  Object.values(OrientationInvalidationTrigger)
+);
+export const OrientationInvalidationTriggers = ORIENTATION_INVALIDATION_TRIGGERS;
+
+export const OrientationActionClass = Object.freeze({
+  IMPLEMENTATION: "implementation",
+  REVIEW_AUTOFIX: "review_autofix",
+  RESIDUAL_REMEDIATION: "residual_remediation",
+  GENERATED_ARTIFACT_UPDATE: "generated_artifact_update",
+  COMMIT_PREPARATION: "commit_preparation",
+  VERIFIER_EXECUTION: "verifier_execution",
+  VERIFIER_RECOVERY: "verifier_recovery"
+});
+
+export const ORIENTATION_ACTION_CLASSES = Object.freeze(Object.values(OrientationActionClass));
+export const OrientationActionClasses = ORIENTATION_ACTION_CLASSES;
 
 export const MissionStatus = Object.freeze({
   ACTIVE: "active",
@@ -88,6 +120,8 @@ export const stageKindValues = Object.freeze(Object.values(StageKind));
 export const executorModeValues = Object.freeze(["local", "a2a", "agent"]);
 const executorModeEnum = z.enum(executorModeValues);
 const executorModesArray = z.array(executorModeEnum);
+const orientationInvalidationTriggerEnum = z.enum(ORIENTATION_INVALIDATION_TRIGGERS);
+const orientationActionClassEnum = z.enum(ORIENTATION_ACTION_CLASSES);
 
 const stringArray = z.array(z.string()).default([]);
 const numberValue = z.number().default(0);
@@ -101,6 +135,7 @@ const seamPlanDraftSchema = z.object({
   actions: z.array(z.string()).optional(),
   dependencies: z.array(z.string()).optional(),
   verification_targets: z.array(z.string()).optional(),
+  planning_orientation: z.lazy(() => PlanningOrientationSchema).optional(),
   source_contract_refs: z.array(z.string()).optional(),
   requires_source_contract_check: z.boolean().optional(),
   status: z.string().optional(),
@@ -126,6 +161,235 @@ const convergenceSeamInputSchema = z.object({
   manifest_order: z.number().optional(),
   plan: seamPlanDraftSchema.optional()
 });
+
+export const OrientationOwnerSeamSchema = z.object({
+  id: z.string().min(1),
+  owner: z.string().min(1),
+  seam: z.string().min(1),
+  evidence_sources: z.array(z.string().min(1)).min(1)
+}).strict();
+
+export const OrientationUncertaintySchema = z.object({
+  id: z.string().min(1),
+  question: z.string().min(1),
+  status: z.enum(["open", "resolved", "disproven", "non_material"]),
+  owner_seam_ids: z.array(z.string().min(1)).min(1),
+  evidence: z.array(z.string().min(1)).default([])
+}).strict().superRefine((uncertainty, ctx) => {
+  if (uncertainty.status !== "open" && uncertainty.evidence.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["evidence"],
+      message: "dispositioned uncertainty requires evidence"
+    });
+  }
+});
+
+export const OrientationProofObligationSchema = z.object({
+  id: z.string().min(1),
+  obligation: z.string().min(1),
+  owner_seam_ids: z.array(z.string().min(1)).min(1),
+  verification_targets: z.array(z.string().min(1)).min(1)
+}).strict();
+
+export const PlanningOrientationSchema = z.object({
+  status: z.literal("current"),
+  workspace_root: z.string().min(1),
+  instruction_sources: z.array(z.string().min(1)).min(1),
+  source_artifacts: z.array(z.string().min(1)).min(1),
+  live_state_identity: z.string().min(1),
+  authority_constraints: z.array(z.string().min(1)).min(1),
+  owner_seams: z.array(OrientationOwnerSeamSchema).min(1),
+  material_uncertainties: z.array(OrientationUncertaintySchema).default([]),
+  proof_obligations: z.array(OrientationProofObligationSchema).min(1),
+  execution_preconditions: z.array(z.string().min(1)).min(1),
+  completion_basis: z.literal(ORIENTATION_COMPLETION_BASIS)
+}).strict().superRefine((orientation, ctx) => {
+  const authorityStatements = [
+    ...orientation.authority_constraints.map((value, index) => ({
+      value,
+      path: ["authority_constraints", index]
+    })),
+    ...orientation.execution_preconditions.map((value, index) => ({
+      value,
+      path: ["execution_preconditions", index]
+    })),
+    ...orientation.owner_seams.flatMap((seam, index) => [
+      { value: seam.owner, path: ["owner_seams", index, "owner"] },
+      { value: seam.seam, path: ["owner_seams", index, "seam"] }
+    ]),
+    ...orientation.material_uncertainties.map((uncertainty, index) => ({
+      value: uncertainty.question,
+      path: ["material_uncertainties", index, "question"]
+    })),
+    ...orientation.proof_obligations.map((obligation, index) => ({
+      value: obligation.obligation,
+      path: ["proof_obligations", index, "obligation"]
+    }))
+  ];
+  for (const statement of authorityStatements) {
+    if (encodesStaticOrientationGate(statement.value)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: statement.path,
+        message: "static numeric read/diagnostic gates cannot establish orientation sufficiency"
+      });
+    }
+  }
+  const ownerSeamIds = new Set();
+  orientation.owner_seams.forEach((seam, index) => {
+    if (ownerSeamIds.has(seam.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["owner_seams", index, "id"],
+        message: `duplicate owner seam id: ${seam.id}`
+      });
+    }
+    ownerSeamIds.add(seam.id);
+  });
+
+  const uncertaintyIds = new Set();
+  orientation.material_uncertainties.forEach((uncertainty, index) => {
+    if (uncertaintyIds.has(uncertainty.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["material_uncertainties", index, "id"],
+        message: `duplicate uncertainty id: ${uncertainty.id}`
+      });
+    }
+    uncertaintyIds.add(uncertainty.id);
+    uncertainty.owner_seam_ids.forEach((ownerSeamId, ownerIndex) => {
+      if (!ownerSeamIds.has(ownerSeamId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["material_uncertainties", index, "owner_seam_ids", ownerIndex],
+          message: `unknown owner seam id: ${ownerSeamId}`
+        });
+      }
+    });
+  });
+
+  const proofObligationIds = new Set();
+  orientation.proof_obligations.forEach((obligation, index) => {
+    if (proofObligationIds.has(obligation.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["proof_obligations", index, "id"],
+        message: `duplicate proof obligation id: ${obligation.id}`
+      });
+    }
+    proofObligationIds.add(obligation.id);
+    obligation.owner_seam_ids.forEach((ownerSeamId, ownerIndex) => {
+      if (!ownerSeamIds.has(ownerSeamId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["proof_obligations", index, "owner_seam_ids", ownerIndex],
+          message: `unknown owner seam id: ${ownerSeamId}`
+        });
+      }
+    });
+  });
+});
+
+export const PlanRefSchema = z.object({
+  plan_id: z.string().min(1),
+  plan_revision: z.number().int().positive()
+});
+
+export const ExecutionOrientationCheckpointSchema = z.object({
+  schema_version: z.number().default(ROI_SCHEMA_VERSION),
+  id: z.string().min(1),
+  mission_id: z.string().min(1),
+  plan_id: z.string().min(1),
+  plan_revision: z.number().int().positive(),
+  run_id: z.string().default(""),
+  task_id: z.string().default(""),
+  supersedes_checkpoint_id: z.string().default(""),
+  status: z.enum(["pending", "current", "stale", "blocked"]),
+  plan_identity: z.string().min(1),
+  live_state_identity: z.string().default(""),
+  current_unit: z.string().default(""),
+  next_action: z.string().default(""),
+  action_class: orientationActionClassEnum.optional(),
+  proof_obligation_ids: stringArray,
+  proof_targets: stringArray,
+  checked_preconditions: stringArray,
+  observed_owner_seam_ids: stringArray,
+  evidence_sequence: z.number().int().nonnegative().default(0),
+  invalidated_by: z.array(orientationInvalidationTriggerEnum).default([]),
+  invalidation_reason: z.string().default(""),
+  refresh_reason: z.union([z.literal("pre_mutation"), orientationInvalidationTriggerEnum]),
+  created_at: z.string()
+}).strict().superRefine((checkpoint, ctx) => {
+  if (checkpoint.status === "current") {
+    for (const field of ["live_state_identity", "current_unit", "next_action"]) {
+      if (!checkpoint[field]) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: "required for current checkpoint" });
+      }
+    }
+    if (!checkpoint.action_class) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["action_class"],
+        message: "required for current checkpoint"
+      });
+    }
+    for (const field of ["proof_obligation_ids", "proof_targets", "checked_preconditions", "observed_owner_seam_ids"]) {
+      if (checkpoint[field].length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: "must be non-empty for current checkpoint"
+        });
+      }
+    }
+    if (checkpoint.invalidated_by.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["invalidated_by"],
+        message: "current checkpoint cannot retain invalidation triggers"
+      });
+    }
+    checkpoint.checked_preconditions.forEach((precondition, index) => {
+      if (encodesStaticOrientationGate(precondition)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["checked_preconditions", index],
+          message: "static numeric read/diagnostic gates cannot establish orientation sufficiency"
+        });
+      }
+    });
+    if (/\b(?:ttl|count|score|percentage|ratio)\s*[:=]/i.test(checkpoint.live_state_identity)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["live_state_identity"],
+        message: "telemetry labels cannot establish live-state identity"
+      });
+    }
+  }
+  if (["stale", "blocked"].includes(checkpoint.status) && checkpoint.invalidated_by.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["invalidated_by"],
+      message: "stale or blocked checkpoint requires an invalidation trigger"
+    });
+  }
+});
+
+function encodesStaticOrientationGate(value) {
+  const text = String(value ?? "");
+  const normalized = text
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
+  const activity = /(?:^|_)(?:read|reads|round|rounds|grep|view|views|search|scan|diagnostic|probe|tool|action)s?(?:_|$)/.test(normalized);
+  const bound = /(?:^|_)(?:count|limit|threshold|budget|quota|cap|ceiling|max|maximum|min|minimum)s?(?:_|$)/.test(normalized);
+  const gateSyntax = /(?:>=|<=|==|>|<)/.test(text) || /\b(?:at least|at most|no more than|limit|threshold|quota|ceiling|maximum|minimum)\b/i.test(text);
+  const quantifiedActivity = /\b\d+\s+(?:read|round|grep|view|search|scan|diagnostic|probe|tool|action)s?\b/i.test(text) ||
+    /\b(?:read|round|grep|view|search|scan|diagnostic|probe|tool|action)s?\s+(?:count\s+)?(?:of\s+)?\d+\b/i.test(text);
+  const temporalGate = /\b(?:after|before|within|by)\s+\d+\b/i.test(text);
+  return /\d/.test(text) && ((bound && gateSyntax) || (activity && (quantifiedActivity || temporalGate)));
+}
 
 export const MissionSchema = z.object({
   schema_version: z.number().default(ROI_SCHEMA_VERSION),
@@ -179,6 +443,7 @@ export const PlanSchema = z.object({
   actions: stringArray,
   dependencies: stringArray,
   verification_targets: stringArray,
+  planning_orientation: PlanningOrientationSchema.optional(),
   source_contract_refs: stringArray,
   requires_source_contract_check: z.boolean().default(false),
   capability_id: z.string().default(""),
@@ -210,6 +475,7 @@ export const RunSchema = z.object({
   status: z.enum(runStateValues),
   summary: z.string(),
   plan_ids: stringArray,
+  plan_refs: z.array(PlanRefSchema).default([]),
   capabilities_used: stringArray,
   context_pack_refs: stringArray,
   deliverable_refs: stringArray,
@@ -439,6 +705,7 @@ export const ToolSchemas = Object.freeze({
       actions: z.array(z.string()).optional(),
       dependencies: z.array(z.string()).optional(),
       verification_targets: z.array(z.string()).optional(),
+      planning_orientation: PlanningOrientationSchema.optional(),
       source_contract_refs: z.array(z.string()).optional(),
       requires_source_contract_check: z.boolean().optional(),
       status: z.string().optional(),
@@ -457,6 +724,7 @@ export const ToolSchemas = Object.freeze({
     actions: z.array(z.string()).optional(),
     dependencies: z.array(z.string()).optional(),
     verification_targets: z.array(z.string()).optional(),
+    planning_orientation: PlanningOrientationSchema.optional(),
     source_contract_refs: z.array(z.string()).optional(),
     requires_source_contract_check: z.boolean().optional(),
     status: z.string().optional(),
@@ -474,6 +742,53 @@ export const ToolSchemas = Object.freeze({
     source_kind: z.string().optional(),
     stage: z.string().optional(),
     mission_title: z.string().optional()
+  }),
+  orientationRefresh: z.object({
+    mission_id: z.string(),
+    plan_id: z.string(),
+    plan_revision: z.number().int().positive(),
+    run_id: z.string().optional(),
+    task_id: z.string().optional(),
+    supersedes_checkpoint_id: z.string().optional(),
+    plan_identity: z.string(),
+    live_state_identity: z.string(),
+    current_unit: z.string(),
+    next_action: z.string(),
+    action_class: orientationActionClassEnum,
+    proof_obligation_ids: z.array(z.string()).min(1),
+    proof_targets: z.array(z.string()).min(1),
+    checked_preconditions: z.array(z.string()),
+    observed_owner_seam_ids: z.array(z.string()),
+    reason: z.union([z.literal("pre_mutation"), orientationInvalidationTriggerEnum])
+  }),
+  orientationInvalidate: z.object({
+    checkpoint_id: z.string().optional(),
+    mission_id: z.string().optional(),
+    plan_id: z.string().optional(),
+    run_id: z.string().optional(),
+    task_id: z.string().optional(),
+    trigger: orientationInvalidationTriggerEnum,
+    reason: z.string().optional()
+  }).refine(
+    (input) => Boolean(input.checkpoint_id || (input.mission_id && input.plan_id)),
+    { message: "checkpoint_id or mission_id plus plan_id is required" }
+  ),
+  orientationGet: z.object({
+    checkpoint_id: z.string().optional(),
+    mission_id: z.string().optional(),
+    plan_id: z.string().optional(),
+    run_id: z.string().optional(),
+    task_id: z.string().optional()
+  }).refine(
+    (input) => Boolean(input.checkpoint_id || (input.mission_id && input.plan_id)),
+    { message: "checkpoint_id or mission_id plus plan_id is required" }
+  ),
+  orientationList: z.object({
+    mission_id: z.string().optional(),
+    plan_id: z.string().optional(),
+    run_id: z.string().optional(),
+    task_id: z.string().optional(),
+    status: z.enum(["pending", "current", "stale", "blocked"]).optional()
   }),
   taskCreate: z.object({
     mission_id: z.string(),
@@ -502,6 +817,9 @@ export const ToolSchemas = Object.freeze({
   taskResume: z.object({ task_id: z.string() }),
   runCreate: z.object({
     mission_id: z.string(),
+    // Compatibility alias for the documented single-plan CLI form. New callers
+    // should use plan_ids so multi-plan intent is explicit.
+    plan_id: z.string().optional(),
     plan_ids: z.array(z.string()).optional(),
     mode: executorModeEnum.optional(),
     prompt: z.string().optional(),
@@ -512,6 +830,18 @@ export const ToolSchemas = Object.freeze({
     a2a_message: z.string().optional(),
     remote_task_id: z.string().optional(),
     remote_context_id: z.string().optional()
+  }).superRefine((input, ctx) => {
+    if (
+      input.plan_id &&
+      input.plan_ids?.length &&
+      (input.plan_ids.length !== 1 || input.plan_ids[0] !== input.plan_id)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["plan_ids"],
+        message: "plan_id and plan_ids must name the same single plan when both are supplied"
+      });
+    }
   }),
   runGet: z.object({ run_id: z.string() }),
   runList: z.object({ mission_id: z.string().optional() }),
@@ -698,8 +1028,10 @@ export const ToolSchemas = Object.freeze({
     require_independent_source_contract_review: z.boolean().optional(),
     /** D2-D: MCP runs plan verification_targets and stamps verify_gate on evidence */
     run_oracles: z.boolean().optional(),
-    /** Checkpoint pass when at least one run plan has substantive roi:go but mission is incomplete */
-    allow_partial_verification: z.boolean().optional()
+    /** Non-publishing checkpoint pass over an explicit semantic plan scope. */
+    allow_partial_verification: z.boolean().optional(),
+    /** Explicit semantic scope for a non-publishing partial verification pass. */
+    scope_plan_ids: z.array(z.string().min(1)).optional()
   }),
   enlightenRun: z.object({ mission_id: z.string() }),
   statusGet: z.object({ mission_id: z.string() })

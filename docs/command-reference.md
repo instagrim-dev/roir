@@ -45,7 +45,7 @@ against the same durable ROI state.
 | **`roi:source`** | `research_record`, `research_list`, `research_summarize` | Direct multi-verb |
 | **`roi:outline`** | `plan_generate`, `plan_revise`, `plan_list` | Direct multi-verb; convergence missions may also seed a seam manifest here |
 | **`roi:plan`** | (alias for `roi:outline`) | Alias |
-| **`roi:draft`** | `run_create`, `run_resume`, `run_cancel` | Direct with built-in gate (typically pauses at `verify_gate`; use `roi:review` to advance) |
+| **`roi:draft`** | `run_create`, `run_resume`, `run_cancel` | Direct lifecycle control; may pause for task-bound orientation before `verify_gate`. Follow the returned current task and `next_actions`. |
 | **`roi:review`** | `status_get`, `review_list`, `verify_evaluate` | Compound quality gate |
 | **`roi:edit`** | `status_get`, `plan_revise`, `run_create`, `run_resume` | Compound revision loop |
 | **`roi:publish`** | `status_get`, `evidence_record` | Compound handoff / release step; convergence missions finalize parent progress here |
@@ -53,7 +53,28 @@ against the same durable ROI state.
 | **`roi:cancel`** | `run_cancel` | Direct; cancels a run and all its pending tasks |
 | **`roi:inspect`** | `status_get` | Direct read-only |
 | **`roi:go`** | `status_get`, `plan_list`, (agent repo work), `evidence_record`, optional `trace_record` | Implementation driver — orchestrates repo work and evidence; not a single verb |
-| **`roi:drive`** | `status_get`, `mission_create`, `brief_revise`, `plan_generate`, `run_create`, `run_resume`, `verify_evaluate`, `evidence_record` | ROI lifecycle driver — runs, verify gate, publish |
+| **`roi:drive`** | `status_get`, `orientation_list`; delegates other verbs to their stage skills | Thin lifecycle orchestrator; pauses at verify and publish gates |
+| **Orientation checkpoint** | `orientation_refresh`, `orientation_invalidate`, `orientation_get`, `orientation_list` | Required execution/verification binding; every executor and automatic review/verifier stage binds its concrete task |
+
+### Orientation lifecycle verbs
+
+```bash
+node scripts/lifecycle.mjs orientation_refresh '{"mission_id":"<id>","plan_id":"<plan-id>","plan_revision":3,"run_id":"<run-id>","plan_identity":"<plan-id>@3","live_state_identity":"git:<sha-or-tree-id>","current_unit":"<declared action>","next_action":"<declared action>","action_class":"implementation","proof_obligation_ids":["PO1"],"proof_targets":["<persisted verification target>"],"checked_preconditions":["<precondition>"],"observed_owner_seam_ids":["OS1"],"reason":"pre_mutation"}'
+node scripts/lifecycle.mjs orientation_invalidate '{"checkpoint_id":"<checkpoint-id>","trigger":"verifier_command_invalidation","reason":"quality review reopened proof"}'
+node scripts/lifecycle.mjs orientation_get '{"checkpoint_id":"<checkpoint-id>"}'
+node scripts/lifecycle.mjs orientation_list '{"mission_id":"<id>"}'
+```
+
+Planning orientation is required before execution and uses
+`owner_seam_coverage_and_material_uncertainty` as its completion basis. Refresh
+execution orientation immediately before every host mutation and verification
+orientation immediately before each verifier. Plan revision, compaction,
+handoff, material live-tree change, failed mutation, verifier-command
+invalidation, owner-seam disappearance, and unavailable execution capability
+are the canonical invalidators.
+
+Counts, percentages, scores, and `ContextPack.freshness_ttl` are telemetry only.
+They do not establish orientation sufficiency or checkpoint eligibility.
 
 ## `roi:work`
 
@@ -99,6 +120,7 @@ active seam with inspectable rationale.
 
 Typical outputs:
 - plan revisions
+- current planning orientation with owner seams and material uncertainties
 - routing decision
 - next action: usually `roi:draft`
 
@@ -129,7 +151,10 @@ A full pass requires substantive `roi:go` evidence for every run plan. When
 accepted, it completes queued run-scope workflow tasks, marks the run
 `completed`, and suppresses stale blockers superseded by later pass reviews.
 Partial checkpoint passes keep publish unavailable and leave `roi:go` in
-`next_actions`.
+`next_actions`. They require an explicitly named semantic scope and a current
+verification checkpoint bound to the current revision and proof obligations;
+every verifier verdict is additionally bound to the matching verify-gate task;
+the number or fraction of substantive plans is not an eligibility rule.
 
 ## `roi:edit`
 
@@ -233,12 +258,14 @@ missions, pass **`require_independent_source_contract_review: true`** to require
 `source_contract_proof_confidence: independent_reviewed` before `pass`.
 For incremental missions,
 **`allow_partial_verification: true`** with **`verdict: pass`** records a
-checkpoint pass when at least one run plan has substantive `roi:go` but
-the mission is incomplete — stamps `verify_gate.partial_mission`, keeps
+checkpoint pass only for a semantically coherent scope explicitly named by
+non-empty `scope_plan_ids`, with current
+plan revisions, substantive scope-bound proof, source-contract coverage, and a
+current verification checkpoint. It stamps `verify_gate.partial_mission`, keeps
 `roi:go` in `next_actions`, and does not imply publish readiness. Use
 `verdict: partial` when the verify-gate task should stay incomplete.
-`status_get.summary.partial_verification_eligible` hints when checkpoint
-pass is available.
+`status_get.summary.partial_verification_eligible` and its counts are telemetry;
+they cannot make an incoherent or stale scope eligible.
 See `docs/meta-design/2026-05-27-roi-implementation-proof-and-executors.md`
 (D7, D8).
 
@@ -247,22 +274,18 @@ See `skills/roi-go/SKILL.md` for dispatch detail.
 ## `roi:drive`
 
 Purpose:
-Drive the **ROI lifecycle** from any position — `status_get` first, then runs,
-verify gate, and publication. Does **not** edit the product repo itself; when
-implementation proof is missing, **continues via the `roi:go` workflow** in the
-same invocation (see `skills/roi-drive/SKILL.md` compound actuation), then
-re-enters drive after evidence exists.
-
-Autonomous by default when evidence exists: self-review at `verify_gate`, then
-publish or surface blockers. One edit retry per invocation. When proof is owed
-and the operator did not say “drive only”, invoke **`roi:go`** for the mission
-(lowest open plan by wave) before `verify_evaluate(pass)`. Local `run_create`
-implement remains stub-only (`LOCAL_EXECUTION_COMPLETED`).
+Drive the **ROI lifecycle** from any position by reading `status_get` and
+orientation state, then delegating to the stage skill named by `next_actions`.
+It does not edit the product repo, record evidence, or record verdicts itself.
+When implementation proof is missing and the operator did not say `drive only`,
+it invokes `roi:go` only for plans covered by current planning orientation,
+then re-enters drive after evidence exists. It stops at `verify_gate` and
+`publish_gate` for explicit operator judgment.
 
 **Strict mode:** operator says `strict` / `verified drive`, sets
 `ROI_STRICT_VERIFY=1`, or brief `verification_policy` is **strict** (graduation /
-maturity missions) — `roi:go` uses `run_oracles: true`; `verify_evaluate(pass)`
-requires helper-verified proof automatically. See
+maturity missions) — delegated `roi:go` uses `run_oracles: true`; the operator's
+later `roi:verify` uses `require_verified_proof: true`. See
 [`docs/mission-verification-policy.md`](./mission-verification-policy.md).
 
 Typical outputs:
