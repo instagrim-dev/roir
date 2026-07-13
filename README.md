@@ -51,8 +51,9 @@ ROI is for people who want to:
 
 ## Prerequisites
 
-- Node.js `>=24`
-- pnpm
+- Node.js `>=24` (pinned to Node 24 via `.nvmrc`)
+- pnpm (the repo pins `pnpm@10.19.0` via `package.json` `packageManager`;
+  run `corepack enable` once to have pnpm resolve to the pinned version)
 - A local checkout of this `roi/` directory, or a release
   `roi-plugin-*.tgz` tarball
 - Optional: Cursor, GitHub Copilot CLI, OpenAI Codex CLI, or Claude Code
@@ -67,8 +68,8 @@ Choose the path that matches what you have.
 ### If You Received A Release Tarball
 
 ```bash
-shasum -a 256 -c roi-plugin-0.1.1.tgz.sha256
-tar -xzf roi-plugin-0.1.1.tgz
+shasum -a 256 -c roi-plugin-<version>.tgz.sha256
+tar -xzf roi-plugin-<version>.tgz
 cd package
 pnpm install --frozen-lockfile
 pnpm run release:check

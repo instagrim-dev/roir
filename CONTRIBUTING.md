@@ -19,6 +19,11 @@ pnpm install
 pnpm test
 ```
 
+This repo pins its toolchain via `package.json` `packageManager`
+(`pnpm@10.19.0`) and its Node floor via `.nvmrc` (Node 24, matching
+`engines.node`). Run `corepack enable` once so pnpm resolves to the pinned
+version; use `nvm use` (or an equivalent) to select the Node version.
+
 Run the lifecycle helper directly when debugging persistence:
 
 ```bash
@@ -41,6 +46,11 @@ Before opening a change:
   the internal lifecycle verb remains `enlighten_run`, but the product
   learning pass is **`roi:learn`** (see
   `docs/command-reference.md`)
+
+CI (`.github/workflows/ci.yml`) enforces this bar on every push and pull
+request to `main`: a `checks` job runs `validate` + `test` +
+`smoke:integration`, and a `release-gate` job runs the full
+`pnpm run release:check`.
 
 ## Release checklist
 

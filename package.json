@@ -4,6 +4,7 @@
   "description": "ROI: Reusable Operational Intelligence — skill-driven lifecycle on top of an in-process service",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@10.19.0",
   "files": [
     ".agents/",
     ".cursor/",

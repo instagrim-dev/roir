@@ -35,8 +35,8 @@ If you received a release tarball, verify and unpack it before following a
 host setup path:
 
 ```bash
-shasum -a 256 -c roi-plugin-0.1.1.tgz.sha256
-tar -xzf roi-plugin-0.1.1.tgz
+shasum -a 256 -c roi-plugin-<version>.tgz.sha256
+tar -xzf roi-plugin-<version>.tgz
 cd package
 pnpm install --frozen-lockfile
 pnpm run release:check

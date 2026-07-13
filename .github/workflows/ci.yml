@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# The quality bar mirrors CONTRIBUTING.md: validate + test + smoke on every
+# change, and the full release gate (release:check) so tag-time surprises are
+# caught in CI rather than during `gh release`.
+jobs:
+  checks:
+    name: validate / test / smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable Corepack (honors package.json packageManager pin)
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate lifecycle verb manifest
+        run: pnpm run validate
+
+      - name: Run test suite
+        run: pnpm test
+
+      - name: Run integration smoke
+        run: pnpm run smoke:integration
+
+  release-gate:
+    name: release:check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enable Corepack (honors package.json packageManager pin)
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Run full release gate
+        run: pnpm run release:check
