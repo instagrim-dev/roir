@@ -44,6 +44,36 @@ ROI does not treat changing state as destructive overwrite where avoidable.
 That means ROI can preserve how a mission changed over time instead of only
 showing the latest prompt or summary.
 
+## Immutable Snapshot Export
+
+Use the immutable snapshot exporter to capture a single mission's complete,
+verifiable state without mutating the source database:
+
+```bash
+node scripts/export-immutable-snapshot.mjs --db .data/roi.sqlite --mission-id <id>
+# or via the package script:
+pnpm run export:immutable -- --db .data/roi.sqlite --mission-id <id>
+```
+
+It prints one JSON manifest to stdout: the mission payload plus every
+mission-scoped record (briefs, research, plans, orientation checkpoints,
+context packs, runs, tasks, evidence, traces, policy decisions, protocol
+bindings, patterns, capabilities, routing decisions, capability activations,
+review records, and convergence controllers/seams). Each record carries a
+canonical `sha256` digest and the manifest carries a top-level
+`manifest_digest`, so a downstream consumer can verify integrity offline.
+
+The exporter opens the source read-only (`mode=ro&immutable=1`) and takes a
+single read-only snapshot bracketed by `PRAGMA data_version` plus a source
+file-stat check. Its immutability guarantee is **"no concurrent ROI helper
+writes during capture"**, not OS-level file immutability: if the source
+changes between the capture boundary open and close it fails with
+`concurrent_write` rather than emitting a torn snapshot. It also refuses a
+source that has live WAL/SHM sidecars (`active_wal_snapshot_unsupported`) and
+rejects a schema version other than the one this runtime supports
+(`unsupported_schema`). Because it never writes lock sidecars, it is safe to
+run against a quiesced database that other tooling treats as read-only.
+
 ## Orientation Checkpoint Semantics
 
 Planning orientation is required before execution. Its authority comes from

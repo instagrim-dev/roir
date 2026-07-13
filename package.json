@@ -1,6 +1,6 @@
 {
   "name": "roi-plugin",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "ROI: Reusable Operational Intelligence — skill-driven lifecycle on top of an in-process service",
   "type": "module",
   "private": true,
@@ -31,6 +31,7 @@
     "validate": "node scripts/validate.mjs",
     "smoke:integration": "node scripts/integration-smoke.mjs",
     "release:check": "node scripts/release-check.mjs",
+    "export:immutable": "node scripts/export-immutable-snapshot.mjs",
     "materialize:ce": "node scripts/materialize-ce-bundle.mjs",
     "sync:lifecycle-verbs": "node scripts/sync-lifecycle-verbs.mjs",
     "install:skills": "bash ./scripts/install-agent-skills.sh claude-user",

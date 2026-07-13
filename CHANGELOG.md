@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.2
+
+- add an immutable mission snapshot exporter
+  (`scripts/export-immutable-snapshot.mjs`, `pnpm run export:immutable`,
+  `src/immutableExport.mjs`) that captures a single mission's complete,
+  digest-verifiable state from a read-only source snapshot without writing
+  lock sidecars, failing closed on concurrent writes, live WAL/SHM sidecars,
+  or an unsupported schema version. The manifest covers every mission-scoped
+  table (including research records and context packs) with collision-free
+  per-record ids across brief/plan/capability revisions.
+
 ## 0.1.1
 
 Public-release cleanup after the history scrub.
