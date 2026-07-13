@@ -1,10 +1,14 @@
 name: CI
 
+# TEMPORARILY DISABLED (cost): automatic push/pull_request triggers are
+# commented out so CI does not run on every change. Manual runs are still
+# available via workflow_dispatch. To re-enable, uncomment the triggers below.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
 
 # The quality bar mirrors CONTRIBUTING.md: validate + test + smoke on every
 # change, and the full release gate (release:check) so tag-time surprises are
