@@ -135,11 +135,12 @@
 
   <path d="M 725 1734 L 725 1790" class="arrow"/>
 
-  <g transform="translate(1086 1858)">
-    <rect x="0" y="0" width="292" height="102" rx="18" ry="18" class="gray" stroke="#202020" stroke-width="3"/>
-    <rect x="6" y="6" width="280" height="90" rx="18" ry="18" class="ink"/>
-    <text x="16" y="38" class="note">`roi:drive` pauses here.</text>
-    <text x="16" y="72" class="note">Verify and publish remain human judgments.</text>
+  <g transform="translate(1066 1858)">
+    <rect x="0" y="0" width="344" height="138" rx="18" ry="18" class="gray" stroke="#202020" stroke-width="3"/>
+    <rect x="6" y="6" width="332" height="126" rx="18" ry="18" class="ink"/>
+    <text x="16" y="40" class="note">`roi:drive` pauses here.</text>
+    <text x="16" y="76" class="note">Verify and publish remain</text>
+    <text x="16" y="110" class="note">human judgments.</text>
   </g>
 
   <g transform="translate(72 2100)">
@@ -170,16 +171,18 @@
   <path d="M 790 2034 L 1072 2144" class="arrow"/>
 
   <g transform="translate(72 2426)">
-    <rect x="0" y="0" width="610" height="104" rx="18" ry="18" class="gray" stroke="#202020" stroke-width="3"/>
-    <rect x="7" y="7" width="596" height="90" rx="18" ry="18" class="ink"/>
-    <text x="18" y="52" class="note">The next step is defined by the next missing artifact.</text>
+    <rect x="0" y="0" width="610" height="140" rx="18" ry="18" class="gray" stroke="#202020" stroke-width="3"/>
+    <rect x="7" y="7" width="596" height="126" rx="18" ry="18" class="ink"/>
+    <text x="18" y="70" class="note">The next step is defined by the</text>
+    <text x="18" y="104" class="note">next missing artifact.</text>
   </g>
 
   <g transform="translate(768 2426)">
-    <rect x="0" y="0" width="610" height="104" rx="18" ry="18" class="orange" stroke="#202020" stroke-width="3.1"/>
-    <rect x="7" y="7" width="596" height="90" rx="18" ry="18" class="ink"/>
-    <text x="18" y="38" class="cardtitle">9. Harvest reuse</text>
-    <text x="18" y="74" class="body">Repeated wins become capability ideas. Otherwise the result is noop.</text>
+    <rect x="0" y="0" width="610" height="140" rx="18" ry="18" class="orange" stroke="#202020" stroke-width="3.1"/>
+    <rect x="7" y="7" width="596" height="126" rx="18" ry="18" class="ink"/>
+    <text x="18" y="46" class="cardtitle">9. Harvest reuse</text>
+    <text x="18" y="86" class="body">Repeated wins become capability ideas.</text>
+    <text x="18" y="118" class="body">Otherwise the result is noop.</text>
   </g>
 
   <path d="M 1072 2396 L 1072 2426" class="arrow"/>
