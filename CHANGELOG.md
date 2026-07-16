@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.3
+
+- add configurable product-tree registration through `roi.config.json` or
+  `ROI_PRODUCT_TREES`, allowing ROI to validate `paths_touched`, infer
+  `product_tree`, run helper oracles, and perform porcelain checks against
+  product trees beyond the built-in `bmo` and `roi` layout.
+- add `skills/references/oracle-patterns.md` and update `roi:go` /
+  `roi:verify` guidance so verification targets must use an oracle pattern
+  that fits the declared behavior class instead of treating any runnable smoke
+  check as substantive proof.
+- allow shell-script gate wrappers (`bash` / `sh`) in helper-run oracles while
+  preserving argv parsing and shell-injection rejection.
+- keep `pnpm run release:check` runnable when the npm registry audit endpoint
+  has a transport/API failure by using pnpm's `--ignore-registry-errors`; actual
+  vulnerability findings still fail the release gate.
+
 ## 0.1.2
 
 - add an immutable mission snapshot exporter

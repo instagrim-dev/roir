@@ -1,6 +1,6 @@
 {
   "name": "roi-plugin",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "ROI: Reusable Operational Intelligence — skill-driven lifecycle on top of an in-process service",
   "type": "module",
   "private": true,
