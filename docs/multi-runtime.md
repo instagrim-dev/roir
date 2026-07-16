@@ -25,6 +25,67 @@ business logic. There is no MCP server, daemon, or long-running process.
   package root. Use for CI smoke tests or isolated experiments so you do
   not lock the developer database. Skills inherit the variable from the
   shell that invokes them.
+- **`ROI_PRODUCT_TREES`** — Optional. JSON array of product-tree
+  descriptors registered in addition to the built-in `bmo`/`roi` trees.
+  See [Product trees](#product-trees).
+
+## Product trees
+
+A **product tree** is a repository subtree that `roi:go`/`roi:verify`
+prove implementation against: it governs the `paths_touched` prefix, the
+`product_tree` selector on `evidence_record`, the working directory an
+oracle runs in, and the optional git-porcelain cross-check.
+
+ROI ships two built-in trees for the `agent-cli/` container layout:
+
+| Key | Subdir | Oracle cwd |
+|-----|--------|-----------|
+| `roi` | `roi/` (the package itself) | ROI package root |
+| `bmo` | sibling `bmo/` | workspace root (`cd bmo && …` self-locates) |
+
+To drive **any other project** on a fresh checkout, register extra trees
+without editing source. Precedence is built-ins < `roi.config.json` <
+`ROI_PRODUCT_TREES` (later wins by key; built-in `subdir`/`cwd` may be
+overridden but the keys cannot be removed).
+
+**`roi.config.json`** at the workspace root (the parent of the `roi/`
+package):
+
+```json
+{
+  "product_trees": [
+    { "key": "core", "subdir": "core", "cwd": "self" },
+    { "key": "api", "subdir": "services/api", "cwd": "self" }
+  ]
+}
+```
+
+**`ROI_PRODUCT_TREES`** env var — the same array inline (useful in CI):
+
+```bash
+export ROI_PRODUCT_TREES='[{"key":"core","subdir":"core","cwd":"self"}]'
+```
+
+Descriptor fields:
+
+- **`key`** (required) — lowercase `paths_touched` prefix and
+  `product_tree` value (`^[a-z0-9][a-z0-9._-]*$`).
+- **`subdir`** (optional, default = `key`) — path under the workspace
+  root; may be nested (`services/api`). Absolute paths and `..` segments
+  are rejected.
+- **`cwd`** (optional, default `self`) — where oracles for this tree run:
+  `self` (the tree's own subdir), `workspace` (workspace root), or
+  `package` (the ROI package root).
+
+**Recommended layout:** check ROI out **as a sibling of the product
+tree(s)** (e.g. `<project>/roi/` next to `<project>/core/`) so
+`paths_touched`, oracle cwd, and porcelain checks resolve against the
+right directories. A verification target then reads naturally, e.g.
+`cd core && bash scripts/test.sh` or `cd services/api && npm run test:unit`
+(oracle binaries `bash`/`sh` are allowlisted for gate scripts).
+
+Unknown `product_tree` keys are rejected at `evidence_record` with an
+error listing the registered keys.
 
 ## Windows
 

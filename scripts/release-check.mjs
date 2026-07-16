@@ -272,7 +272,11 @@ export function main() {
       "copilot",
       "--dry-run",
     ]);
-    run("Audit production dependencies", "pnpm", ["audit", "--prod"]);
+    run("Audit production dependencies", "pnpm", [
+      "audit",
+      "--prod",
+      "--ignore-registry-errors",
+    ]);
     inspectPackage();
 
     console.log("\nrelease-check: ok");

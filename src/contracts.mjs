@@ -856,8 +856,19 @@ export const ToolSchemas = Object.freeze({
     artifact_ref: z.string().optional(),
     /** D7-w1: MCP executes plan verification_targets and stamps verified_by: mcp */
     run_oracles: z.boolean().optional(),
-    /** D7-w2: bmo|roi — enforce paths_touched prefix and optional git porcelain cross-check */
-    product_tree: z.enum(["bmo", "roi"]).optional(),
+    /**
+     * D7-w2: product-tree key — enforces paths_touched prefix and optional git
+     * porcelain cross-check. Built-ins `bmo`/`roi` plus any tree registered via
+     * `roi.config.json` or `ROI_PRODUCT_TREES`. The concrete key set depends on
+     * the workspace root, so the authoritative membership check happens in
+     * resolveProductTreeKey(); here we only constrain the shape.
+     */
+    product_tree: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z0-9][a-z0-9._-]*$/, "product_tree must be a lowercase tree key")
+      .optional(),
     content: looseRecord.optional()
   }),
   evidenceList: z.object({

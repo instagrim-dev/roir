@@ -7,8 +7,14 @@ import path from "node:path";
 import {
   defaultRoiWorkspaceRoot,
   resolveRoiPackageRoot,
+  resolveProductTreeRoot,
   IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED
 } from "./implementationProof.mjs";
+import {
+  CWD_WORKSPACE,
+  CWD_PACKAGE,
+  productTreeRegistry
+} from "./productTrees.mjs";
 
 export const VACUOUS_GO_TEST_MARKER = "[no tests to run]";
 
@@ -39,7 +45,13 @@ const ALLOWED_ORACLE_BINARIES = new Set([
   "make",
   "cargo",
   "bun",
-  "deno"
+  "deno",
+  // `bash <script>` runs argv-style (no shell parsing by our lexer); the script
+  // path is a literal argument. Common for repo gate scripts that wrap a test
+  // suite (e.g. `bash scripts/run_coverage_gate.sh`). Shell metacharacters in
+  // the target string are still rejected by the tokenizer before we ever exec.
+  "bash",
+  "sh"
 ]);
 
 function unsafeOraclesAllowed() {
@@ -170,10 +182,38 @@ export function roiPackageRoot(workspaceRoot = defaultRoiWorkspaceRoot()) {
   return resolveRoiPackageRoot(workspaceRoot);
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Choose the working directory for an oracle command. Each registered product
+ * tree may claim a command by matching `cd <subdir>` or a `<subdir>/` fragment;
+ * the tree's `cwd` policy then decides where it runs:
+ *   - workspace: workspace root (legacy `bmo` behavior; its `cd bmo` self-locates)
+ *   - package:   the ROI package root (legacy `roi` behavior)
+ *   - self:      the tree's own subdir root (sibling project repos)
+ * Commands that match no tree fall back to the ROI package root, preserving the
+ * historical default.
+ */
 export function oracleCwdForCommand(cmd, workspaceRoot = defaultRoiWorkspaceRoot()) {
   const trimmed = String(cmd).trim();
-  if (trimmed.includes("bmo/") || trimmed.startsWith("cd bmo")) {
-    return workspaceRoot;
+  const registry = productTreeRegistry(workspaceRoot);
+  for (const tree of registry.values()) {
+    const subdir = tree.subdir ?? tree.key;
+    const claimsCommand =
+      new RegExp(`(^|\\s)cd\\s+${escapeRegExp(subdir)}(\\s|$|/|&)`).test(trimmed) ||
+      trimmed.includes(`${subdir}/`);
+    if (!claimsCommand) {
+      continue;
+    }
+    if (tree.cwd === CWD_WORKSPACE) {
+      return workspaceRoot;
+    }
+    if (tree.cwd === CWD_PACKAGE) {
+      return roiPackageRoot(workspaceRoot);
+    }
+    return resolveProductTreeRoot(tree.key, workspaceRoot);
   }
   return roiPackageRoot(workspaceRoot);
 }

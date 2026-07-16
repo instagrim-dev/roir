@@ -61,7 +61,15 @@ the plan." Read
    `content.implementation_proof` exists (diff or `paths_touched`) and that
    oracles were not vacuous (no `[no tests to run]`). Treat pass without
    proof as **not substantive** — the verdict should be `partial` or `fail`,
-   not `pass`.
+   not `pass`. Likewise, an oracle that is **under-fit** for its declared
+   behavior class — one that cannot falsify the class it claims to prove (a
+   smoke oracle for a refactor-equivalence or regression claim; an exact-match
+   oracle for a relation-only claim), or a `verification_target` whose `proves`
+   names no behavior class — is **not substantive** even when it exits 0:
+   downgrade to `partial` or `fail`, not `pass`. Oracle fitness is
+   reviewer-judged against the behavior-class → minimum-fit map in
+   [`references/oracle-patterns.md`](../references/oracle-patterns.md); it is a
+   refinement of the vacuous-proof rule above, not a separate gate.
 
 4. For each source-derived plan (`requires_source_contract_check: true` or
    non-empty `source_contract_refs`), confirm the latest passing `roi:go`

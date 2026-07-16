@@ -12,6 +12,7 @@ import {
   resolveProductTreeRoot,
   porcelainPathForTouched,
   inferProductTreeKey,
+  resolveProductTreeKey,
   pathAppearsInPorcelain,
   runPlansHaveMcpVerifiedGoEvidence,
   runPlansHaveMcpVerifiedGoEvidenceForSubstantive,
@@ -441,6 +442,54 @@ test("validatePathsTouchedOnDisk accepts workspace-relative sibling paths", () =
     )
   );
   assert.equal(inferProductTreeKey({ verification_targets: ["cd bmo && go test"] }), "bmo");
+});
+
+test("resolveProductTreeKey accepts env-registered trees and rejects unknown keys", () => {
+  const prev = process.env.ROI_PRODUCT_TREES;
+  process.env.ROI_PRODUCT_TREES = JSON.stringify([
+    { key: "svc", subdir: "services/api", cwd: "self" }
+  ]);
+  try {
+    // Explicit known key round-trips.
+    assert.equal(resolveProductTreeKey(null, "svc", [], "/tmp/x"), "svc");
+    // Inference from a plan referencing the tree subdir.
+    assert.equal(
+      inferProductTreeKey(
+        { verification_targets: ["cd services/api && npm run test:unit"] },
+        "/tmp/x"
+      ),
+      "svc"
+    );
+    // Inference from paths_touched prefix.
+    assert.equal(resolveProductTreeKey(null, undefined, ["svc/app.py"], "/tmp/x"), "svc");
+    // Unknown key throws, and the message lists the known keys.
+    assert.throws(
+      () => resolveProductTreeKey(null, "nope", [], "/tmp/x"),
+      /product_tree must be one of:.*svc/
+    );
+  } finally {
+    if (prev === undefined) {
+      delete process.env.ROI_PRODUCT_TREES;
+    } else {
+      process.env.ROI_PRODUCT_TREES = prev;
+    }
+  }
+});
+
+test("resolveProductTreeRoot resolves nested subdirs for registered trees", () => {
+  const prev = process.env.ROI_PRODUCT_TREES;
+  process.env.ROI_PRODUCT_TREES = JSON.stringify([
+    { key: "svc", subdir: "services/api", cwd: "self" }
+  ]);
+  try {
+    assert.equal(resolveProductTreeRoot("svc", "/tmp/root"), path.join("/tmp/root", "services/api"));
+  } finally {
+    if (prev === undefined) {
+      delete process.env.ROI_PRODUCT_TREES;
+    } else {
+      process.env.ROI_PRODUCT_TREES = prev;
+    }
+  }
 });
 
 test("validatePathsTouchedOnDisk rejects `..` traversal behind a valid prefix", () => {

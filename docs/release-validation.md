@@ -59,8 +59,10 @@ order by `pnpm run release:check`):
    round-trip, error paths).
 5. **Installer dry-runs** for Claude (`claude-user`), Codex, and Copilot
    skill plugins.
-6. **Production dependency audit** — `pnpm audit --prod` must report no
-   known vulnerabilities.
+6. **Production dependency audit** — `pnpm audit --prod
+   --ignore-registry-errors` must report no known vulnerabilities. Registry
+   transport/API failures are printed and treated as infrastructure failures,
+   not vulnerability findings, so local package validation can still complete.
 7. **Package tarball inspection** — `pnpm pack` produces a tarball; the
    gate enforces that listed paths match an allowlist (no
    `bmo-import/`, `artifacts/`, `.data/`, `node_modules/`, or
@@ -158,8 +160,10 @@ The test suite must prove:
 
 ### 6. Security And Dependency Validation
 
-`pnpm audit --prod` must report no known vulnerabilities before a package
-handoff.
+`pnpm audit --prod --ignore-registry-errors` must report no known
+vulnerabilities before a package handoff. Registry transport/API failures are
+printed by pnpm and recorded in the release-check output, but they do not claim
+the dependency set is vulnerability-free.
 
 If this ever becomes impossible because of an unpatched transitive
 dependency, the release must stop until `SECURITY.md` or release notes

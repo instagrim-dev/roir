@@ -1,0 +1,17 @@
+{
+  "$comment": "Example roi.config.json for driving a project whose product tree(s) are NOT the built-in bmo/roi. Copy to a file named `roi.config.json` at the ROI workspace root (the parent of the roi/ package). Alternatively set the ROI_PRODUCT_TREES env var to the JSON array under `product_trees`. Built-in `bmo` and `roi` trees always remain available; entries here add to (or override the subdir/cwd of) that set.",
+  "product_trees": [
+    {
+      "key": "core",
+      "subdir": "core",
+      "cwd": "self",
+      "$note": "A sibling repo/dir under the workspace root. Oracles for this tree (paths_touched prefixed `core/`) run from `<workspace>/core`. Verification targets like `pytest -q`, `npm run test:unit`, or `bash scripts/test_ci.sh` execute there."
+    },
+    {
+      "key": "api",
+      "subdir": "services/api",
+      "cwd": "self",
+      "$note": "`subdir` may be nested. paths_touched use the `api/` key prefix; oracle cwd resolves to `<workspace>/services/api`."
+    }
+  ]
+}

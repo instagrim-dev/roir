@@ -61,7 +61,7 @@ Score the artifact; **do not** treat high sums as “more lines.”
 
 | Criterion | 0 | 1 | 2 |
 | --- | --- | --- | --- |
-| **Falsifiability** | No checkable done | Commands only | Properties + commands |
+| **Falsifiability** | No checkable done | Commands only | Properties + commands (class-fit oracle) |
 | **Scope enforcement** | Vague goals | Non-goals listed | Non-goals + cross-feature ids (#61 out) |
 | **Invariant clarity** | Unstated | Implied | Explicit |
 | **Discovery budget** | Everything prescribed | Mixed | Open implementation, closed oracles |
@@ -72,6 +72,13 @@ Score the artifact; **do not** treat high sums as “more lines.”
 
 **Emergent strength** ≈ high falsifiability + invariants + scope, without
 requiring mechanical prescription.
+
+The `2` cell of **Falsifiability** requires the oracle to *fit the declared
+behavior class* — the minimum oracle pattern that can falsify that class. A
+falsifiable-but-under-fit oracle (e.g. a smoke oracle for a refactor-equivalence
+claim) scores below `2`. The behavior-class → minimum-fit map and the selection
+discipline live in [`oracle-patterns.md`](oracle-patterns.md); it is a refinement
+of this row, **not** a ninth rubric row.
 
 ---
 
@@ -88,7 +95,10 @@ requiring mechanical prescription.
 
 - **Plans:** outcome-oriented `scope` citing REQ ids or invariants
 - **actions:** verbs + property (“emit auth_rejected from requireAuth”), not file edits
-- **verification_targets:** runnable gates (`go test -run …`, doc grep, build)
+- **verification_targets:** runnable gates (`go test -run …`, doc grep, build);
+  choose the **minimum-fit oracle** for the unit's behavior class — a
+  falsifiable-but-under-fit oracle is a VT defect, see
+  [`oracle-patterns.md`](oracle-patterns.md)
 - **dependencies:** prefer **plan UUIDs** after first `plan_list`; string labels
   are acceptable only when paired with CE `bundle_id` / unit ids
 - **Do not merge** unrelated atomic units to reduce plan count unless the user
@@ -281,6 +291,7 @@ testable.
 - **Agent theater:** “spawn 4 explore agents” with no role-specific oracle
 - **Parallelism without exclusion:** two implementers on overlapping write paths
 - **Speculative new abstraction:** introducing `pkg/foo` / a coordinator / a manager / a "clean boundary" the codebase didn't previously need, justified by aesthetic invariants ("better separation", "cleaner") rather than a named existing seam considered first and a falsifiable architectural invariant. See the *Abstraction restraint* section above.
+- **Under-fit oracle:** a `verification_target` whose oracle pattern cannot falsify its declared behavior class (a smoke oracle for a refactor-equivalence or regression claim; an exact-match oracle for a relation-only claim). Revise the oracle before use — do not record the pass. See [`oracle-patterns.md`](oracle-patterns.md).
 
 ---
 
@@ -290,5 +301,7 @@ Canonical copy in this package: `skills/references/agentic-plan-strength.md`
 (this file).
 
 Installed with `scripts/install-agent-skills.sh` to Claude/Codex/Copilot plugin
-paths. If another workspace mirrors this guidance, update the mirror when this
-file changes.
+paths. The companion reference [`oracle-patterns.md`](oracle-patterns.md)
+(behavior-class → minimum-fit oracle selection) is installed alongside this file
+by the same script. If another workspace mirrors this guidance, update the mirror
+when either file changes.

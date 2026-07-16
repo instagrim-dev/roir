@@ -10,8 +10,13 @@ import {
   compareEvidenceChronological,
   qualityReviewInvalidatesPlan
 } from "./missionVerificationPolicy.mjs";
-
-const PRODUCT_TREE_KEYS = new Set(["bmo", "roi"]);
+import {
+  CWD_WORKSPACE,
+  CWD_PACKAGE,
+  getProductTree,
+  isProductTreeKey,
+  productTreeKeys
+} from "./productTrees.mjs";
 
 export const IMPLEMENTATION_PROOF_TRUST_AGENT_CLAIMED = "agent_claimed";
 export const IMPLEMENTATION_PROOF_TRUST_MCP_VERIFIED = "mcp_verified";
@@ -106,7 +111,7 @@ function sourceContractEvidencePathIssue(ref, workspaceRoot) {
     return "";
   }
   const parts = splitProductTreePath(normalized);
-  const resolved = parts && PRODUCT_TREE_KEYS.has(parts.treeKey)
+  const resolved = parts && isProductTreeKey(parts.treeKey, root)
     ? resolveTouchedPath(normalized, root)
     : path.resolve(resolveRoiPackageRoot(root), normalized);
   if (!fs.existsSync(resolved)) {
@@ -257,6 +262,10 @@ export function resolveProductTreeRoot(productTree, workspaceRoot = defaultRoiWo
   if (key === "bmo") {
     return path.basename(root) === "bmo" ? root : path.join(root, "bmo");
   }
+  const tree = getProductTree(key, root);
+  if (tree) {
+    return path.basename(root) === tree.subdir ? root : path.join(root, tree.subdir);
+  }
   return root;
 }
 
@@ -310,7 +319,7 @@ export function oracleRunRecordPresent(proof, plan) {
 }
 
 /** Infer product tree from plan targets/actions (D7-w2). */
-export function inferProductTreeKey(plan) {
+export function inferProductTreeKey(plan, workspaceRoot = defaultRoiWorkspaceRoot()) {
   const blob = [
     ...(Array.isArray(plan?.verification_targets) ? plan.verification_targets : []),
     ...(Array.isArray(plan?.actions) ? plan.actions : [])
@@ -318,34 +327,59 @@ export function inferProductTreeKey(plan) {
   if (/\bbmo\//.test(blob) || blob.includes("cd bmo")) {
     return "bmo";
   }
+  // Registry-defined trees: match `cd <subdir>` or a `<subdir>/` path fragment
+  // in the plan text. Built-ins (roi/bmo) are handled above / below.
+  for (const key of productTreeKeys(workspaceRoot)) {
+    if (key === "roi" || key === "bmo") {
+      continue;
+    }
+    const tree = getProductTree(key, workspaceRoot);
+    const subdir = tree?.subdir ?? key;
+    if (
+      new RegExp(`(^|\\s)cd\\s+${escapeRegExp(subdir)}(\\s|$|/|&)`).test(blob) ||
+      blob.includes(`${subdir}/`)
+    ) {
+      return key;
+    }
+  }
   return "roi";
 }
 
-export function inferProductTreeKeyFromPaths(paths) {
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function inferProductTreeKeyFromPaths(paths, workspaceRoot = defaultRoiWorkspaceRoot()) {
+  const keys = productTreeKeys(workspaceRoot);
   for (const touched of paths ?? []) {
-    const norm = normalizeRepoRelativePath(touched);
-    if (norm.startsWith("bmo/")) {
-      return "bmo";
-    }
-    if (norm.startsWith("roi/")) {
-      return "roi";
+    const parts = splitProductTreePath(normalizeRepoRelativePath(touched));
+    if (parts && keys.has(parts.treeKey)) {
+      return parts.treeKey;
     }
   }
   return null;
 }
 
-export function resolveProductTreeKey(plan, explicitProductTree, paths = []) {
+export function resolveProductTreeKey(
+  plan,
+  explicitProductTree,
+  paths = [],
+  workspaceRoot = defaultRoiWorkspaceRoot()
+) {
   const explicit = String(explicitProductTree ?? "").trim().toLowerCase();
   if (explicit) {
-    if (!PRODUCT_TREE_KEYS.has(explicit)) {
-      throw new Error(`product_tree must be bmo or roi, got: ${explicitProductTree}`);
+    if (!isProductTreeKey(explicit, workspaceRoot)) {
+      const known = [...productTreeKeys(workspaceRoot)].sort().join(", ");
+      throw new Error(
+        `product_tree must be one of: ${known} — got: ${explicitProductTree}`
+      );
     }
     return explicit;
   }
   if (plan) {
-    return inferProductTreeKey(plan);
+    return inferProductTreeKey(plan, workspaceRoot);
   }
-  const fromPaths = inferProductTreeKeyFromPaths(paths);
+  const fromPaths = inferProductTreeKeyFromPaths(paths, workspaceRoot);
   if (fromPaths) {
     return fromPaths;
   }
@@ -408,7 +442,7 @@ export function validatePathsTouchedOnDisk(
     }
     const parts = splitProductTreePath(normalized);
     const treeKey = parts?.treeKey ?? "";
-    const isKnownProductTree = PRODUCT_TREE_KEYS.has(treeKey);
+    const isKnownProductTree = isProductTreeKey(treeKey, root);
     const productRoot = isKnownProductTree ? resolveProductTreeRoot(treeKey, root) : root;
     // Resolve-then-contain: known product trees keep their rooted containment,
     // while sibling workspace projects (for example `benchmarks/`) are allowed
@@ -428,7 +462,7 @@ export function validatePathsTouchedOnDisk(
   }
 
   if (porcelainCheck) {
-    const treeKey = resolveProductTreeKey(plan, productTree, paths);
+    const treeKey = resolveProductTreeKey(plan, productTree, paths, root);
     const treePrefix = `${treeKey}/`;
     const porcelainLines = gitPorcelainLines(root);
     if (porcelainLines === null) {
